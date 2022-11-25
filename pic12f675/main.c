@@ -485,6 +485,7 @@ void apply_pwr_level() __at(0x0040)
         asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
         asm("movwf 5"); /* assign GPIO: output = 0 */
         AUX_DELAY_10
+        // TODO SIZE: can reduce delay and just jump to labe_apply_pwr_level__d2_c1
         asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
         asm("movwf 5"); /* assign GPIO: output = 1 */
         asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
@@ -499,6 +500,7 @@ void apply_pwr_level() __at(0x0040)
         asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
         asm("movwf 5"); /* assign GPIO: output = 0 */
         AUX_DELAY_4
+        // TODO SIZE: can reduce delay and just jump to labe_apply_pwr_level__d2_c1
         asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
         asm("movwf 5"); /* assign GPIO: output = 1 */
         asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
@@ -629,6 +631,7 @@ void apply_pwr_level() __at(0x0040)
             asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
             asm("movwf 5"); /* assign GPIO: output = 1 */
                 AUX_DELAY_2
+            // TODO SIZE: can reduce delay and just jump to such common quit
             asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
             asm("movwf 5"); /* assign GPIO: output = 0 */
             asm("return");
@@ -651,6 +654,7 @@ void apply_pwr_level() __at(0x0040)
             asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
             asm("movwf 5"); /* assign GPIO: output = 1 */
                 AUX_DELAY_3
+            // TODO SIZE: can reduce delay and just jump to such common quit
             asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
             asm("movwf 5"); /* assign GPIO: output = 0 */
             asm("return");
@@ -674,6 +678,7 @@ void apply_pwr_level() __at(0x0040)
             asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
             asm("movwf 5"); /* assign GPIO: output = 1 */
                 AUX_DELAY_4
+            // TODO SIZE: can reduce delay and just jump to such common quit
             asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
             asm("movwf 5"); /* assign GPIO: output = 0 */
             asm("return");
@@ -697,6 +702,7 @@ void apply_pwr_level() __at(0x0040)
             asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
             asm("movwf 5"); /* assign GPIO: output = 1 */
                 AUX_DELAY_5
+            // TODO SIZE: can reduce delay and just jump to such common quit
             asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
             asm("movwf 5"); /* assign GPIO: output = 0 */
             asm("return");
@@ -720,6 +726,7 @@ void apply_pwr_level() __at(0x0040)
             asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
             asm("movwf 5"); /* assign GPIO: output = 1 */
                 AUX_DELAY_7
+            // TODO SIZE: can reduce delay and just jump to such common quit
             asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
             asm("movwf 5"); /* assign GPIO: output = 0 */
             asm("return");
@@ -743,6 +750,7 @@ void apply_pwr_level() __at(0x0040)
             asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
             asm("movwf 5"); /* assign GPIO: output = 1 */
                 AUX_DELAY_10
+            // TODO SIZE: can reduce delay and just jump to such common quit
             asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
             asm("movwf 5"); /* assign GPIO: output = 0 */
             asm("return");
@@ -766,6 +774,7 @@ void apply_pwr_level() __at(0x0040)
             asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
             asm("movwf 5"); /* assign GPIO: output = 1 */
                 AUX_DELAY_13
+            // TODO SIZE: can reduce delay and just jump to such common quit
             asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
             asm("movwf 5"); /* assign GPIO: output = 0 */
             asm("return");
@@ -789,6 +798,7 @@ void apply_pwr_level() __at(0x0040)
             asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
             asm("movwf 5"); /* assign GPIO: output = 1 */
                 AUX_DELAY_16
+            // TODO SIZE: can reduce delay and just jump to such common quit
             asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
             asm("movwf 5"); /* assign GPIO: output = 0 */
             asm("return");
@@ -826,6 +836,7 @@ void apply_pwr_level() __at(0x0040)
             asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
             asm("movwf 5"); /* assign GPIO: output = 1 */
                 AUX_DELAY_19
+            // TODO SIZE: can reduce delay and just jump to such common quit
             asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
             asm("movwf 5"); /* assign GPIO: output = 0 */
             asm("return");
