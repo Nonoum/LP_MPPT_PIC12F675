@@ -378,6 +378,54 @@ uint8_t pwr_level = 0; // active power level - the higher - the lower is inducto
 uint8_t tmp_ctr; // temporary
 uint8_t tmp_ctr2; // temporary
 
+asm("global _aux_delay_generic");
+void aux_delay_generic() {
+    // 2(call) + ... + 2(return)
+    asm("labe_aux_delay_20:"); asm("fcall labe_aux_delay_4");
+    asm("labe_aux_delay_16:"); asm("fcall labe_aux_delay_4");
+    asm("labe_aux_delay_12:"); asm("fcall labe_aux_delay_4");
+    asm("labe_aux_delay_8:");  asm("fcall labe_aux_delay_4");
+    asm("return");
+    asm("labe_aux_delay_7:"); asm("nop");
+    asm("labe_aux_delay_6:"); asm("nop");
+    asm("labe_aux_delay_5:"); asm("nop");
+    asm("labe_aux_delay_4:");
+    // 'return' is auto-geerated
+}
+#define AUX_DELAY_1 asm("nop");
+#define AUX_DELAY_2 asm("nop"); asm("nop");
+#define AUX_DELAY_3 asm("nop"); asm("nop"); asm("nop");
+
+#define AUX_DELAY_4 asm("fcall labe_aux_delay_4");
+#define AUX_DELAY_5 asm("fcall labe_aux_delay_5");
+#define AUX_DELAY_6 asm("fcall labe_aux_delay_6");
+#define AUX_DELAY_7 asm("fcall labe_aux_delay_7");
+#define AUX_DELAY_8 asm("fcall labe_aux_delay_8");
+#define AUX_DELAY_9      asm("fcall labe_aux_delay_4"); asm("fcall labe_aux_delay_5");
+#define AUX_DELAY_10     asm("fcall labe_aux_delay_4"); asm("fcall labe_aux_delay_6");
+#define AUX_DELAY_11     asm("fcall labe_aux_delay_4"); asm("fcall labe_aux_delay_7");
+#define AUX_DELAY_12 asm("fcall labe_aux_delay_12");
+#define AUX_DELAY_13     asm("fcall labe_aux_delay_8"); asm("fcall labe_aux_delay_5");
+#define AUX_DELAY_14     asm("fcall labe_aux_delay_8"); asm("fcall labe_aux_delay_6");
+#define AUX_DELAY_15     asm("fcall labe_aux_delay_8"); asm("fcall labe_aux_delay_7");
+#define AUX_DELAY_16 asm("fcall labe_aux_delay_16");
+#define AUX_DELAY_17     asm("fcall labe_aux_delay_12"); asm("fcall labe_aux_delay_5");
+#define AUX_DELAY_18     asm("fcall labe_aux_delay_12"); asm("fcall labe_aux_delay_6");
+#define AUX_DELAY_19     asm("fcall labe_aux_delay_12"); asm("fcall labe_aux_delay_7");
+#define AUX_DELAY_20     asm("fcall labe_aux_delay_12"); asm("fcall labe_aux_delay_8");
+#define AUX_DELAY_21     asm("fcall labe_aux_delay_16"); asm("fcall labe_aux_delay_5");
+#define AUX_DELAY_22     asm("fcall labe_aux_delay_16"); asm("fcall labe_aux_delay_6");
+#define AUX_DELAY_23     asm("fcall labe_aux_delay_16"); asm("fcall labe_aux_delay_7");
+#define AUX_DELAY_24     asm("fcall labe_aux_delay_16"); asm("fcall labe_aux_delay_8");
+#define AUX_DELAY_25     asm("fcall labe_aux_delay_20"); asm("fcall labe_aux_delay_5");
+#define AUX_DELAY_26     asm("fcall labe_aux_delay_20"); asm("fcall labe_aux_delay_6");
+#define AUX_DELAY_27     asm("fcall labe_aux_delay_20"); asm("fcall labe_aux_delay_7");
+#define AUX_DELAY_28     asm("fcall labe_aux_delay_20"); asm("fcall labe_aux_delay_8");
+
+#define AUX_DELAY_32     asm("fcall labe_aux_delay_16"); asm("fcall labe_aux_delay_16");
+#define AUX_DELAY_36     asm("fcall labe_aux_delay_20"); asm("fcall labe_aux_delay_16");
+#define AUX_DELAY_40     asm("fcall labe_aux_delay_20"); asm("fcall labe_aux_delay_20");
+
 
 void apply_pwr_level() __at(0x0040)
 {
@@ -433,7 +481,7 @@ void apply_pwr_level() __at(0x0040)
         asm("movf _gp_shadow,w");
         asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
         asm("movwf 5"); /* assign GPIO: output = 1 */
-        asm("nop");
+        AUX_DELAY_1
         asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
         asm("movwf 5"); /* assign GPIO: output = 0 */
         asm("movwf _gp_shadow"); // refresh gp_shadow
@@ -446,11 +494,11 @@ void apply_pwr_level() __at(0x0040)
         asm("movwf 5"); /* assign GPIO: output = 1 */
         asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
         asm("movwf 5"); /* assign GPIO: output = 0 */
-        asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); // distribute load more evenly
+        AUX_DELAY_7 // distribute load more evenly
         asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
         asm("movwf 5"); /* assign GPIO: output = 1 */
         asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
-        asm("nop");
+        AUX_DELAY_1
         asm("movwf 5"); /* assign GPIO: output = 0 */
         asm("movwf _gp_shadow");
         asm("return");
@@ -460,14 +508,14 @@ void apply_pwr_level() __at(0x0040)
         asm("movf _gp_shadow,w");
         asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
         asm("movwf 5"); /* assign GPIO: output = 1 */
-        asm("nop");
+        AUX_DELAY_1
         asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
         asm("movwf 5"); /* assign GPIO: output = 0 */
-        asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); // distribute load more evenly
+        AUX_DELAY_7 // distribute load more evenly
         asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
         asm("movwf 5"); /* assign GPIO: output = 1 */
         asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
-        asm("nop");
+        AUX_DELAY_1
         asm("movwf 5"); /* assign GPIO: output = 0 */
         asm("movwf _gp_shadow");
         asm("return");
@@ -519,7 +567,7 @@ void apply_pwr_level() __at(0x0040)
     asm("labe_apply_pwr_level__d3_cycle:");
         asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
         asm("movwf 5"); /* assign GPIO: output = 1 */
-            asm("nop");
+            AUX_DELAY_1
         asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
         asm("movwf 5"); /* assign GPIO: output = 0 */
         asm("decfsz _tmp_ctr,f");
@@ -535,7 +583,7 @@ void apply_pwr_level() __at(0x0040)
     asm("labe_apply_pwr_level__d4_cycle:");
         asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
         asm("movwf 5"); /* assign GPIO: output = 1 */
-            asm("nop"); asm("nop");
+            AUX_DELAY_2
         asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
         asm("movwf 5"); /* assign GPIO: output = 0 */
         asm("decfsz _tmp_ctr,f");
@@ -551,7 +599,7 @@ void apply_pwr_level() __at(0x0040)
     asm("labe_apply_pwr_level__d5_cycle:");
         asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
         asm("movwf 5"); /* assign GPIO: output = 1 */
-            asm("nop"); asm("nop"); asm("nop");
+            AUX_DELAY_3
         asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
         asm("movwf 5"); /* assign GPIO: output = 0 */
         asm("decfsz _tmp_ctr,f");
@@ -567,10 +615,10 @@ void apply_pwr_level() __at(0x0040)
     asm("labe_apply_pwr_level__d6_cycle:");
         asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
         asm("movwf 5"); /* assign GPIO: output = 1 */
-            asm("nop"); asm("nop"); asm("nop"); asm("nop");
+            AUX_DELAY_4
         asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
         asm("movwf 5"); /* assign GPIO: output = 0 */
-            asm("nop"); asm("nop");
+            AUX_DELAY_2
         asm("decfsz _tmp_ctr,f");
         asm("goto labe_apply_pwr_level__d6_cycle");
             asm("movwf _gp_shadow");
@@ -584,10 +632,10 @@ void apply_pwr_level() __at(0x0040)
     asm("labe_apply_pwr_level__d7_cycle:");
         asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
         asm("movwf 5"); /* assign GPIO: output = 1 */
-            asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop");
+            AUX_DELAY_5
         asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
         asm("movwf 5"); /* assign GPIO: output = 0 */
-            asm("nop"); asm("nop"); asm("nop");
+            AUX_DELAY_3
         asm("decfsz _tmp_ctr,f");
         asm("goto labe_apply_pwr_level__d7_cycle");
             asm("movwf _gp_shadow");
@@ -601,10 +649,10 @@ void apply_pwr_level() __at(0x0040)
     asm("labe_apply_pwr_level__d9_cycle:");
         asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
         asm("movwf 5"); /* assign GPIO: output = 1 */
-            asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop");
+            AUX_DELAY_7
         asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
         asm("movwf 5"); /* assign GPIO: output = 0 */
-            asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop");
+            AUX_DELAY_5
         asm("decfsz _tmp_ctr,f");
         asm("goto labe_apply_pwr_level__d9_cycle");
             asm("movwf _gp_shadow");
@@ -618,10 +666,10 @@ void apply_pwr_level() __at(0x0040)
     asm("labe_apply_pwr_level__d12_cycle:");
         asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
         asm("movwf 5"); /* assign GPIO: output = 1 */
-            asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop");
+            AUX_DELAY_10
         asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
         asm("movwf 5"); /* assign GPIO: output = 0 */
-            asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop");
+            AUX_DELAY_8
         asm("decfsz _tmp_ctr,f");
         asm("goto labe_apply_pwr_level__d12_cycle");
             asm("movwf _gp_shadow");
@@ -635,10 +683,10 @@ void apply_pwr_level() __at(0x0040)
     asm("labe_apply_pwr_level__d15_cycle:");
         asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
         asm("movwf 5"); /* assign GPIO: output = 1 */
-            asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop");
+            AUX_DELAY_13
         asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
         asm("movwf 5"); /* assign GPIO: output = 0 */
-            asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop");
+            AUX_DELAY_11
         asm("decfsz _tmp_ctr,f");
         asm("goto labe_apply_pwr_level__d15_cycle");
             asm("movwf _gp_shadow");
@@ -652,10 +700,10 @@ void apply_pwr_level() __at(0x0040)
     asm("labe_apply_pwr_level__d18_cycle:");
         asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
         asm("movwf 5"); /* assign GPIO: output = 1 */
-            asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop");
+            AUX_DELAY_16
         asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
         asm("movwf 5"); /* assign GPIO: output = 0 */
-            asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop");
+            AUX_DELAY_14
         asm("decfsz _tmp_ctr,f");
         asm("goto labe_apply_pwr_level__d18_cycle");
             asm("movwf _gp_shadow");
@@ -669,10 +717,10 @@ void apply_pwr_level() __at(0x0040)
     asm("labe_apply_pwr_level__d21_cycle:");
         asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
         asm("movwf 5"); /* assign GPIO: output = 1 */
-            asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop");
+            AUX_DELAY_19
         asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
         asm("movwf 5"); /* assign GPIO: output = 0 */
-            asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop");
+            AUX_DELAY_17
         asm("decfsz _tmp_ctr,f");
         asm("goto labe_apply_pwr_level__d21_cycle");
             asm("movwf _gp_shadow");
