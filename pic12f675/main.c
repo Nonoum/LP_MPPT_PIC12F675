@@ -18,8 +18,10 @@
         3. linear stabilizer has output ceramic capacitor (used 2.2uf in the prototype) and is connected as the PIC MCU power supply;
             * no mini buck converter can be used instead due to it's high input capacitance;
         4. one N-channel mosfet connects a large buffer capacitor between "high voltage" and "gnd" and occassionally disconnects it to measure open circuit voltage;
+            * required PULLUP EXTERNAL resistor (used 200kOhm) - pull to stabilizer's voltage.
             heavy 5x 1000uf 35v LOW ESR capacitors are used in the prototype.
         5. second N-channel mosfet connects an output circuit (inductor+diode+capacitor) between "high voltage" and "gnd" and is being PWMed;
+            * required PULLDOWN EXTERNAL resistor (used 200kOhm) - pull to "gnd".
             inductor is around 22uh - 47uh (in currently tested prototype 47uh is used);
             recommended capacitor is at least 2000uf (in currently tested prototype 2000uf is used);
         6. a calculated voltage divider between "high voltage" and "gnd" is connected to PIC MCU's pin with ADC channel:
@@ -47,12 +49,25 @@
             * PIC16F676 could be easily adapted to use entire portB (6 pins) for mosfet driving;
             * mosfet that connects capacitors is rarely triggered so it can (and should) be more powerful (lower RdsON) - planned to test IRL2203 for this;
 
+    Pulsation notes:
+        - output voltage pulsations looked good for current FW version although they were evaluated with simple testers (I don't have an oscilloscope);
+        - increasing capacitance (both buffer and output caps) should smooth pulsations very well (partly tested);
+        - capacitance can be smaller or bigger than in prototype described above, suggestions for buffer and output caps are:
+            -- minimum: 1000uf (buffer), 2000uf(output);
+            -- recommended: 3000uf+ (buffer), 5000uf+(output);
+        - for future addition of output voltage limitation feedback there are expected to be rare more substantial drop-offs (when reaching voltage limit) for algorithm/code that I have in mind;
+
     More output voltage limiting notes:
         - powerbank:
             - tested powerbank can be tricked to trigger QC mode and rise voltage - when it's connected it "requests" higher voltage while pushing no substantial load
             and the actual voltage can be rising at the moment so powerbank considers that everything is according to plan and accepts it;
             - if voltage manages to rise higher than powerbank's limit - it will shut down and won't charge;
-            - plain buck converter on output is apparenty fully "opened" and acts as a minor resistance (inductor+mosfet) with it's input and output voltages being almost equal;
+            - plain buck converter (when added after output) is apparenty fully "opened" and acts as a minor resistance (inductor+mosfet) with it's input and output voltages being almost equal;
+
+    Adding to existing solar (battery + PWM charger) system:
+        - it's assumed that this controller can be simply connected in series between solar panel and thirdparty "PWM Solar controller",
+        although it's not tested and I'm not 100% that a PWM controller would handle this without any issues
+        (specifically when charging is done and PWM controller's input voltage goes up);
 
     Partial shading: use cases of this project don't assume optimal work with significant partial shading (no "full scan" is implemented, nor it's possible with such scheme).
     Personal notes:
@@ -95,8 +110,8 @@
 #define PROJ_ADC_CH_VOL 2 // AN2 (GPIO2)
 
 // ADC allows up to 10k resistance, thus for 5vols it's NOT LESS than 0.5ma current for each ADC channel
-#define PROJ_ADC_ADCS 0b110 // conversion time
-#define PROJ_ADC_TIME_US 16
+#define PROJ_ADC_ADCS 0b010 // conversion time
+#define PROJ_ADC_TIME_US 8
 
 #define PROJ_THR_START 204 // initial threshold percentage (x/255) of raw(no load) voltage to hold
 #define PROJ_THR_MIN 199 // min, including (round-robin)
@@ -139,12 +154,6 @@ uint8_t dirty_flags;
     to multiply actual frequency by around x1.5 (comparing to 4mhz spec).
 */
 
-#define PROJ_DELAY_X3_P1(a_value, lbl_name) \
-    asm("movlw " AUX_STRINGIFY(a_value)); \
-    asm("movwf _tmp_ctr"); \
-    asm(""lbl_name":"); \
-    asm("decfsz _tmp_ctr"); \
-    asm("goto "lbl_name);
 
 // relies on active bank 0
 #define PROJ_ASSIGN_OUT_1 \
@@ -202,6 +211,7 @@ void isr(void) __at(0x0004)
     asm("retfie"); // compiler auto-generates "return" here, nevermind at the moment, just use explicit retfie.
 }
 
+// >= 3 tacts: 3 or 8 or 10
 #define PROJ_INLINED_ISR_REPLACEMENT(lbl_name) \
     asm("decfsz _isr_ctr_128_s0,f"); \
     asm("goto "lbl_name); \
@@ -215,6 +225,7 @@ void isr(void) __at(0x0004)
             asm("movwf _isr_ctr_1s_s1"); \
     asm(""lbl_name":");
 
+// >= 5 tacts: 5 or 5+(3 or 8 or 10) == 5 or 8 or 13 or 15 tacts
 #define PROJ_CATCH_AVOID_ISR(lbl_name_exit, n_timer_periods) \
     asm("movlw " AUX_STRINGIFY(256-n_timer_periods)); \
     /* asm("bcf	3,5"); select bank 0 (for tmr0 reg) */ \
@@ -288,6 +299,10 @@ void fast_RunADC_8_rising() {
 }
 
 
+// TODO multiplication will be optimized to reduce delay, likely in one of two ways (if calibration is fully discarded):
+// 1. shorter multiply-by-constant code
+// 2. mapped table (addwf 2,...; retlw ... retlw) with around 220-230 bytes of program memory
+// another option is several predefined multiply-by-constant blocks with combined tabled jump to required one
 uint8_t fast_mul_8x8_res_h;
 uint8_t fast_mul_8x8_res_l;
 uint8_t fast_mul_8x8_input1; // input2 is w
@@ -941,8 +956,8 @@ void main() {
             asm("skipnc"); // nc == borrow
             asm("goto labe_main__ge_thr_hi"); // jump if adcval >= thr_hi
                 // else : adcval < thr_hi
-                asm("movlw " AUX_STRINGIFY(PROJ_PWR_RISE_DELAY)); // w = PROJ_PWR_RISE_DELAY
-                asm("movwf _app_rise_counter"); // app_rise_counter = PROJ_PWR_RISE_DELAY
+                asm("movlw " AUX_STRINGIFY(1)); // w = 1
+                asm("movwf _app_rise_counter"); // app_rise_counter = 1 (allow fastest rise)
 
                 asm("movf " VAR_ADCVAL ",w"); // w = adcval
                 asm("subwf _thr_lo,w"); // w = thr_lo - adcval
@@ -957,8 +972,21 @@ void main() {
                 // thr_lo >= adcval
                 asm("clrf _pwr_level");
                 asm("goto labe_main__pre_apply_pwr");
+                ////
+                asm("labe_main__eq_thr_hi:"); // adcval == thr_hi
+                asm("movf _pwr_level,f"); // test curr power
+                asm("skipnz");
+                asm("goto labe_main__maybe_rise"); // allow such rising from pwr0 to pwr1 only, otherwise - reset counter, consider a 'stable state'
+                asm("movlw " AUX_STRINGIFY(1)); // w = 1
+                asm("movwf _app_rise_counter"); // app_rise_counter = 1 (allow fastest rise)
+                asm("goto labe_main__pre_apply_pwr");
+                ////
             asm("labe_main__ge_thr_hi:");
             // adcval >= thr_hi
+            asm("skipnz");
+            asm("goto labe_main__eq_thr_hi"); // jump if adcval == thr_hi
+            // adcval > thr_hi
+            asm("labe_main__maybe_rise:");
             asm("decfsz _app_rise_counter");
             asm("goto labe_main__pre_apply_pwr"); // rising not allowed yet, jump to apply pwr
                 // else - rising allowed, reset the counter and rise
