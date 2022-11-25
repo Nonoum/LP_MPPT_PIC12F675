@@ -551,43 +551,43 @@ void apply_pwr_level() __at(0x0040)
         asm("return");
 
     asm("labe_apply_pwr_level__d3_c2:");
-    asm("movlw 2");
+    asm("movlw 1");
     asm("goto labe_apply_pwr_level__d3_cycle_preinit");
 
     asm("labe_apply_pwr_level__d3_c3:");
-    asm("movlw 3");
+    asm("movlw 2");
     asm("goto labe_apply_pwr_level__d3_cycle_preinit");
 
     asm("labe_apply_pwr_level__d3_c4:");
-    asm("movlw 4");
+    asm("movlw 3");
     asm("goto labe_apply_pwr_level__d3_cycle_preinit");
 
     asm("labe_apply_pwr_level__d3_c5:");
-    asm("movlw 5");
+    asm("movlw 4");
     asm("goto labe_apply_pwr_level__d3_cycle_preinit");
 
     asm("labe_apply_pwr_level__d3_c7:");
-    asm("movlw 7");
+    asm("movlw 6");
     asm("goto labe_apply_pwr_level__d3_cycle_preinit");
 
     asm("labe_apply_pwr_level__d3_c9:");
-    asm("movlw 9");
+    asm("movlw 8");
     asm("goto labe_apply_pwr_level__d3_cycle_preinit");
 
     asm("labe_apply_pwr_level__d3_c12:");
-    asm("movlw 12");
+    asm("movlw 11");
     asm("goto labe_apply_pwr_level__d3_cycle_preinit");
 
     asm("labe_apply_pwr_level__d3_c15:");
-    asm("movlw 15");
+    asm("movlw 14");
     asm("goto labe_apply_pwr_level__d3_cycle_preinit");
 
     asm("labe_apply_pwr_level__d3_c19:");
-    asm("movlw 19");
+    asm("movlw 18");
     asm("goto labe_apply_pwr_level__d3_cycle_preinit");
 
     asm("labe_apply_pwr_level__d3_c24:");
-    asm("movlw 24");
+    asm("movlw 23");
     asm("goto labe_apply_pwr_level__d3_cycle_preinit");
 
     // ----- generic 3
@@ -602,11 +602,17 @@ void apply_pwr_level() __at(0x0040)
         asm("movwf 5"); /* assign GPIO: output = 0 */
         asm("decfsz _tmp_ctr,f");
         asm("goto labe_apply_pwr_level__d3_cycle");
-            asm("movwf _gp_shadow");
+            // last iteration - after cycle, to minimize further delay
+            asm("movwf _gp_shadow"); // update gp_shadow earlier... by same reason
+            asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
+            asm("movwf 5"); /* assign GPIO: output = 1 */
+                AUX_DELAY_1
+            asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
+            asm("movwf 5"); /* assign GPIO: output = 0 */
             asm("return");
 
     asm("labe_apply_pwr_level__d4_c18:");
-    asm("movlw 18");
+    asm("movlw 17");
     asm("movwf _tmp_ctr");
     asm("movf _gp_shadow,w");
     // ----- generic 4
@@ -618,11 +624,17 @@ void apply_pwr_level() __at(0x0040)
         asm("movwf 5"); /* assign GPIO: output = 0 */
         asm("decfsz _tmp_ctr,f");
         asm("goto labe_apply_pwr_level__d4_cycle");
-            asm("movwf _gp_shadow");
+            // last iteration - after cycle, to minimize further delay
+            asm("movwf _gp_shadow"); // update gp_shadow earlier... by same reason
+            asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
+            asm("movwf 5"); /* assign GPIO: output = 1 */
+                AUX_DELAY_2
+            asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
+            asm("movwf 5"); /* assign GPIO: output = 0 */
             asm("return");
 
     asm("labe_apply_pwr_level__d5_c15:");
-    asm("movlw 15");
+    asm("movlw 14");
     asm("movwf _tmp_ctr");
     asm("movf _gp_shadow,w");
     // ----- generic 5
@@ -634,11 +646,17 @@ void apply_pwr_level() __at(0x0040)
         asm("movwf 5"); /* assign GPIO: output = 0 */
         asm("decfsz _tmp_ctr,f");
         asm("goto labe_apply_pwr_level__d5_cycle");
-            asm("movwf _gp_shadow");
+            // last iteration - after cycle, to minimize further delay
+            asm("movwf _gp_shadow"); // update gp_shadow earlier... by same reason
+            asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
+            asm("movwf 5"); /* assign GPIO: output = 1 */
+                AUX_DELAY_3
+            asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
+            asm("movwf 5"); /* assign GPIO: output = 0 */
             asm("return");
 
     asm("labe_apply_pwr_level__d6_c12:");
-    asm("movlw 12");
+    asm("movlw 11");
     asm("movwf _tmp_ctr");
     asm("movf _gp_shadow,w");
     // ----- generic 6
@@ -648,14 +666,20 @@ void apply_pwr_level() __at(0x0040)
             AUX_DELAY_4
         asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
         asm("movwf 5"); /* assign GPIO: output = 0 */
-            AUX_DELAY_2
+            AUX_DELAY_1
         asm("decfsz _tmp_ctr,f");
         asm("goto labe_apply_pwr_level__d6_cycle");
-            asm("movwf _gp_shadow");
+            // last iteration - after cycle, to minimize further delay
+            asm("movwf _gp_shadow"); // update gp_shadow earlier... by same reason
+            asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
+            asm("movwf 5"); /* assign GPIO: output = 1 */
+                AUX_DELAY_4
+            asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
+            asm("movwf 5"); /* assign GPIO: output = 0 */
             asm("return");
 
     asm("labe_apply_pwr_level__d7_c10:");
-    asm("movlw 10");
+    asm("movlw 9");
     asm("movwf _tmp_ctr");
     asm("movf _gp_shadow,w");
     // ----- generic 7
@@ -665,14 +689,20 @@ void apply_pwr_level() __at(0x0040)
             AUX_DELAY_5
         asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
         asm("movwf 5"); /* assign GPIO: output = 0 */
-            AUX_DELAY_3
+            AUX_DELAY_2
         asm("decfsz _tmp_ctr,f");
         asm("goto labe_apply_pwr_level__d7_cycle");
-            asm("movwf _gp_shadow");
+            // last iteration - after cycle, to minimize further delay
+            asm("movwf _gp_shadow"); // update gp_shadow earlier... by same reason
+            asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
+            asm("movwf 5"); /* assign GPIO: output = 1 */
+                AUX_DELAY_5
+            asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
+            asm("movwf 5"); /* assign GPIO: output = 0 */
             asm("return");
 
     asm("labe_apply_pwr_level__d9_c8:");
-    asm("movlw 8");
+    asm("movlw 7");
     asm("movwf _tmp_ctr");
     asm("movf _gp_shadow,w");
     // ----- generic 9
@@ -682,14 +712,20 @@ void apply_pwr_level() __at(0x0040)
             AUX_DELAY_7
         asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
         asm("movwf 5"); /* assign GPIO: output = 0 */
-            AUX_DELAY_5
+            AUX_DELAY_4
         asm("decfsz _tmp_ctr,f");
         asm("goto labe_apply_pwr_level__d9_cycle");
-            asm("movwf _gp_shadow");
+            // last iteration - after cycle, to minimize further delay
+            asm("movwf _gp_shadow"); // update gp_shadow earlier... by same reason
+            asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
+            asm("movwf 5"); /* assign GPIO: output = 1 */
+                AUX_DELAY_7
+            asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
+            asm("movwf 5"); /* assign GPIO: output = 0 */
             asm("return");
 
     asm("labe_apply_pwr_level__d12_c6:");
-    asm("movlw 6");
+    asm("movlw 5");
     asm("movwf _tmp_ctr");
     asm("movf _gp_shadow,w");
     // ----- generic 12
@@ -699,14 +735,20 @@ void apply_pwr_level() __at(0x0040)
             AUX_DELAY_10
         asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
         asm("movwf 5"); /* assign GPIO: output = 0 */
-            AUX_DELAY_8
+            AUX_DELAY_7
         asm("decfsz _tmp_ctr,f");
         asm("goto labe_apply_pwr_level__d12_cycle");
-            asm("movwf _gp_shadow");
+            // last iteration - after cycle, to minimize further delay
+            asm("movwf _gp_shadow"); // update gp_shadow earlier... by same reason
+            asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
+            asm("movwf 5"); /* assign GPIO: output = 1 */
+                AUX_DELAY_10
+            asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
+            asm("movwf 5"); /* assign GPIO: output = 0 */
             asm("return");
 
     asm("labe_apply_pwr_level__d15_c5:");
-    asm("movlw 5");
+    asm("movlw 4");
     asm("movwf _tmp_ctr");
     asm("movf _gp_shadow,w");
     // ----- generic 15
@@ -716,14 +758,20 @@ void apply_pwr_level() __at(0x0040)
             AUX_DELAY_13
         asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
         asm("movwf 5"); /* assign GPIO: output = 0 */
-            AUX_DELAY_11
+            AUX_DELAY_10
         asm("decfsz _tmp_ctr,f");
         asm("goto labe_apply_pwr_level__d15_cycle");
-            asm("movwf _gp_shadow");
+            // last iteration - after cycle, to minimize further delay
+            asm("movwf _gp_shadow"); // update gp_shadow earlier... by same reason
+            asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
+            asm("movwf 5"); /* assign GPIO: output = 1 */
+                AUX_DELAY_13
+            asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
+            asm("movwf 5"); /* assign GPIO: output = 0 */
             asm("return");
 
     asm("labe_apply_pwr_level__d18_c4:");
-    asm("movlw 4");
+    asm("movlw 3");
     asm("movwf _tmp_ctr");
     asm("movf _gp_shadow,w");
     // ----- generic 18
@@ -733,27 +781,53 @@ void apply_pwr_level() __at(0x0040)
             AUX_DELAY_16
         asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
         asm("movwf 5"); /* assign GPIO: output = 0 */
-            AUX_DELAY_14
+            AUX_DELAY_13
         asm("decfsz _tmp_ctr,f");
         asm("goto labe_apply_pwr_level__d18_cycle");
-            asm("movwf _gp_shadow");
+            // last iteration - after cycle, to minimize further delay
+            asm("movwf _gp_shadow"); // update gp_shadow earlier... by same reason
+            asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
+            asm("movwf 5"); /* assign GPIO: output = 1 */
+                AUX_DELAY_16
+            asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
+            asm("movwf 5"); /* assign GPIO: output = 0 */
             asm("return");
 
+
+    // special handler
+    asm("labe_apply_pwr_level__special:");
+    asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
+    asm("movwf 5"); /* assign GPIO: output = 0 */
+        AUX_DELAY_17
+    asm("goto labe_apply_pwr_level__pre_max_level");
+    //
+
     asm("labe_apply_pwr_level__d21_c3:");
-    asm("movlw 3");
+    asm("movlw 2");
     asm("movwf _tmp_ctr");
     asm("movf _gp_shadow,w");
+    //
+    asm("btfsc 5," AUX_STRINGIFY(PROJ_BIT_NUM_OUT_OUT)); // check if we came here from pwr MAX - then pre-apply 0
+    asm("goto labe_apply_pwr_level__special");
+    //
     // ----- generic 21
+    asm("labe_apply_pwr_level__pre_max_level:");
     asm("labe_apply_pwr_level__d21_cycle:");
         asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
         asm("movwf 5"); /* assign GPIO: output = 1 */
             AUX_DELAY_19
         asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
         asm("movwf 5"); /* assign GPIO: output = 0 */
-            AUX_DELAY_17
+            AUX_DELAY_16
         asm("decfsz _tmp_ctr,f");
         asm("goto labe_apply_pwr_level__d21_cycle");
-            asm("movwf _gp_shadow");
+            // last iteration - after cycle, to minimize further delay
+            asm("movwf _gp_shadow"); // update gp_shadow earlier... by same reason
+            asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
+            asm("movwf 5"); /* assign GPIO: output = 1 */
+                AUX_DELAY_19
+            asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
+            asm("movwf 5"); /* assign GPIO: output = 0 */
             asm("return");
 
     asm("labe_apply_pwr_level__max:");
