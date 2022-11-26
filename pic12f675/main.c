@@ -3,10 +3,12 @@
 
     This Solar controller is being developed in these dark times when russia is destroying energetic system of my country and has already caused full-scale blackout.
 
-    The project is intended as LOW-COST simple low power MPPT device to:
-    - be affordable (very cheap MCU, small and simple scheme, *NO CURRENT SENSOR);
-    - get maximum solar power generation in cloudy and winter weather (proper work specifically in low power range: starting from 0.01 A).
-        -- allow using high voltage panels for low-voltage devices in such conditions when very small amount of solar energy can be generated (e.g. using 18v panel to charge a smartphone powerbank).
+    The project is intended as LOW-COST simple MPPT device that works well in low-power range and:
+    - is affordable (very cheap MCU, small and simple scheme, *NO CURRENT SENSOR);
+    - gets maximum solar power generation in cloudy and winter weather (proper work specifically in low power range: starting from 0.01 A).
+        -- allows using high voltage panels for low-voltage devices in such conditions when very small amount of solar energy can be generated (e.g. using 18v panel to charge a smartphone powerbank).
+
+    Global disclaimer: author has very limited testing capabilities, any hardware implementaion should be tested in required scenarios to ensure proper/correct work.
 
     Principle of work: according to solar panels voltage/current curves at very most part of the range the maximum power point (MPPT) is at around 80% of open circuit voltage (named 'raw voltage' here).
     So with certain scheme it's possible to measure (almost)open-circuit voltage (with minimal load) and track optimal mode without need of a current sensor.
@@ -16,58 +18,69 @@
         2. input("high voltage" and "gnd") is connected to linear voltage stabilizer and minimal(!) required ceramic capacitor (0.1 - 0.15uf):
             0.15uf cap and "LP2950CZ-3.3G ON" stabilizer are used in the prototype.
         3. linear stabilizer has output ceramic capacitor (used 2.2uf in the prototype) and is connected as the PIC MCU power supply;
-            * no mini buck converter can be used instead due to it's high input capacitance;
-        4. one N-channel mosfet connects a large buffer capacitor between "high voltage" and "gnd" and occassionally disconnects it to measure open circuit voltage;
-            * required PULLUP EXTERNAL resistor (used 200kOhm) - pull to stabilizer's voltage.
+            * no mini buck converter can be used instead due to it's high input capacitance.
+        4. one N-channel mosfet connects a large buffer capacitor between "high voltage" and "gnd" and occassionally (~once a second) disconnects it to measure open circuit voltage;
+            * required PULLUP EXTERNAL resistor (used 200kOhm) - pull to stabilizer's voltage (which is 3.3v or 5v);
             heavy 5x 1000uf 35v LOW ESR capacitors are used in the prototype.
         5. second N-channel mosfet connects an output circuit (inductor+diode+capacitor) between "high voltage" and "gnd" and is being PWMed;
-            * required PULLDOWN EXTERNAL resistor (used 200kOhm) - pull to "gnd".
+            * required PULLDOWN EXTERNAL resistor (used 200kOhm) - pull to "gnd";
             inductor is around 22uh - 47uh (in currently tested prototype 47uh is used);
-            recommended capacitor is at least 2000uf (in currently tested prototype 2000uf is used);
+            * different inductors can be used depending on other conditions - calculate for your needs;
+            recommended output capacitor is at least 2000uf (in currently tested prototype 2000uf is used).
         6. a calculated voltage divider between "high voltage" and "gnd" is connected to PIC MCU's pin with ADC channel:
             so that maximum possible voltage is <= nominal voltage of linear stabilizer;
-            3.3kOhm / 20kOhm are used in prototype, I'd recommend to not exceed total resistance around 1kOhm per 1v nominal of solar panel;
-        7. mosfets used in prototype are "IRLZ34N" - pretty low input capacitance, proper DS opening at 3.3v;
-        8. with this minimym the output is not regulated so it can reach up to "opn circuit voltage" of the solar panel connected,
-            as a very simple voltage limiter - a buck converter can be used;
+            3.3kOhm : 20kOhm devider is used in prototype, I'd recommend to not exceed (not significantly) sum resistance around 1kOhm per 1v nominal of solar panel.
+        7. mosfets used in prototype are "IRLZ34N" - pretty low input capacitance, proper DS opening at 3.3v.
+        8. with this minimum schematic the output is not regulated so it can reach up to "open circuit voltage" of the solar panel connected,
+            as a very simple voltage limiter - a buck(step-down) converter can be used.
 
     Output voltage/feedback: it's planned to implement feedback for output voltage limiting with an optocoupler and a comparator;
 
+    Features:
+        - "soft start" in current and all foreseeable future versions;
+        - low self-consumption: prototype consumes 1..2 ma (stable state with no load), having worse linear stabilizer it would be a little more;
 
+    PIC MCU notes: there are different packages with at least two working voltage ranges: some PICs have 3.6v limit (only 3.3v stabilizer can be used in this case);
 
     Efficiency notes:
         - prototype has shown efficieny (output RMS power / input RMS power) from around 70 to 92% depending on voltage delta between an MPPT point and target output voltage;
         - efficieny was measured with not expensive equipment in limited environment;
-        - used 18v panel (with typical MPPT around 15 ... 18v);
+        - in described testing 18v panel was used (with typical MPPT ranging within 15 ... 18v);
         - with plain powerbank as output ("consumed" voltage 4.5 ... 5.2v) deltaV is more than 10 volts and measured efficiency was around 75%;
-        - with output 11.4v (same powerbank but luckily triggered to "stabilize at 12V QC mode" and apparently dropping it's buck cycles to maintain that)
-            deltaV was around 4V and measured efficiency was 92.5%.
-        - presumably higher voltage linear stabilizer (5v, more = not allowed for PIC) could do better (at least with some other mosfets) - this is to be tested;
+        - with output 11.4v (same powerbank but luckily triggered by delay to "stabilize at 12V QC mode" and apparently dropping it's buck cycles to maintain that)
+            deltaV was 3.1V and measured efficiency was 92.5%.
+        - presumably higher voltage linear stabilizer (5v only, more = not allowed for PIC) would yield higher efficiency (or at least with some other mosfets) - this is to be tested;
         - Miller Effect: wasn't observed in prototype with my testing in artificial environment (tested single output driving pin vs dual output driving pin at 3.3v MCU voltage)
-            * however it was tested with output voltages from 2v to 4v, and the effect could be noticed at higher output voltages - this is to be tested;
-            * mosfets with larger parasitic capacitance could defenitely require doubled/tripled MCU output pin to drive them at high frequencies;
-            * PIC16F676 could be easily adapted to use entire portB (6 pins) for mosfet driving;
+            * however it was tested with output voltages from 2v to 4v, and the effect could rather be noticed at higher output voltages - this is to be tested;
+            * 'noticed' in this case means any significant impact on efficiency;
+            * mosfets with larger parasitic capacitance could defenitely require doubled/tripled MCU output pins to drive them at high frequencies;
+            * PIC16F676 could be (relatively)easily adapted to use entire portB (6 pins) for mosfet driving;
             * mosfet that connects capacitors is rarely triggered so it can (and should) be more powerful (lower RdsON) - planned to test IRL2203 for this;
 
     Pulsation notes:
         - output voltage pulsations looked good for current FW version although they were evaluated with simple testers (I don't have an oscilloscope);
+        - even higher pulsations are *presumably okay for charging batteries with good BMS;
         - increasing capacitance (both buffer and output caps) should smooth pulsations very well (partly tested);
         - capacitance can be smaller or bigger than in prototype described above, suggestions for buffer and output caps are:
             -- minimum: 1000uf (buffer), 2000uf(output);
             -- recommended: 3000uf+ (buffer), 5000uf+(output);
-        - for future addition of output voltage limitation feedback there are expected to be rare more substantial drop-offs (when reaching voltage limit) for algorithm/code that I have in mind;
+        - for future addition of output voltage limitation feedback there are expected to be rare more substantial drop-offs (when reaching voltage limit) for the implementation that I have in mind;
+
+    PWM notes: code does manual pwm with duty (open output mosfet) lengths starting from 2us and duty/nonduty ratio up to 1:1 (less or much-less duty depending on various circumstances).
 
     More output voltage limiting notes:
         - powerbank:
-            - tested powerbank can be tricked to trigger QC mode and rise voltage - when it's connected it "requests" higher voltage while pushing no substantial load
+            - tested powerbank can be tricked to trigger QC mode and rise voltage - when it's connected it "requests" higher voltage while consuming no substantial load
             and the actual voltage can be rising at the moment so powerbank considers that everything is according to plan and accepts it;
             - if voltage manages to rise higher than powerbank's limit - it will shut down and won't charge;
             - plain buck converter (when added after output) is apparenty fully "opened" and acts as a minor resistance (inductor+mosfet) with it's input and output voltages being almost equal;
 
     Adding to existing solar (battery + PWM charger) system:
-        - it's assumed that this controller can be simply connected in series between solar panel and thirdparty "PWM Solar controller",
+        - it's assumed that this controller can be simply connected in series between solar panel and thirdparty "PWM Solar controller" to increase system efficiency,
         although it's not tested and I'm not 100% that a PWM controller would handle this without any issues
         (specifically when charging is done and PWM controller's input voltage goes up);
+
+    Using as-is (non-regulated output) with a BMS and batteries: *presumably will work fine, might trigger BMS's overvoltage protection in certain cases (depends on BMS).
 
     Partial shading: use cases of this project don't assume optimal work with significant partial shading (no "full scan" is implemented, nor it's possible with such scheme).
     Personal notes:
@@ -89,6 +102,26 @@
 #pragma config CPD = OFF // Data EEPROM Memory Code Protection bit (Data EEPROM code protection off)
 //END CONFIG
 
+
+
+// version info (3 numbers and letter) is accessible at top program-memory addresses right before OSCCAL (retlw commands)
+#define FW_VER_MAJOR 0
+#define FW_VER_MINOR 1
+#define FW_VER_PATCH 0
+#define FW_VER_OPTION 'A' // some letter describing topology/configuration of compiled code. default is 'A'
+/*
+    FW_VER_OPTION vaiants:
+    - 'A' (0x41) : unregulated output;
+        single output-fet-driving pin is GPIO0;
+        GPIO1 controls mosfet of buffer capacior;
+        GPIO2 is ADC input;
+        GPIO4 - input mode debug pin, GPIO5 - output mode debug pin.
+*/
+
+
+
+
+
 #define AUX_STRINGIFY_INTERNAL(foo) #foo
 #define AUX_STRINGIFY(foo) AUX_STRINGIFY_INTERNAL(foo)
 
@@ -107,23 +140,21 @@
 #define PROJ_BIT_NUM_IN_BTN 4 // GPIO4 (PROJ_BIT_IN_BTN)
 #define PROJ_BIT_NUM_OUT_DEBUG 5 // GPIO5 (PROJ_BIT_OUT_DEBUG)
 
-#define PROJ_ADC_CH_VOL 2 // AN2 (GPIO2)
+#define PROJ_ADC_CH_VOL 2 // ADC channel - AN2 (GPIO2)
 
 // ADC allows up to 10k resistance, thus for 5vols it's NOT LESS than 0.5ma current for each ADC channel
 #define PROJ_ADC_ADCS 0b010 // conversion time
-#define PROJ_ADC_TIME_US 8
 
 #define PROJ_THR_START 204 // initial threshold percentage (x/255) of raw(no load) voltage to hold
 #define PROJ_THR_MIN 199 // min, including (round-robin)
 #define PROJ_THR_MAX 219 // max, including (round-robin)
-#define PROJ_THR_DIFF_LARGER_DROPOUT 2 // thr_hi - adcval >= 'this' ? larger power drop
 #define PROJ_THR_DIFF_INSTANT_DROPOUT 6 // thr_hi - adcval >= 'this' ? full power drop
-#define PROJ_THR_STEP 5 // percantage to add at button press
-#define PROJ_BTN_DELAY 4 // amount of 100ms periods for button state, at pre-last iteration triggers button action
+#define PROJ_THR_STEP 5 // threshold percantage (x/255) to add at button press
+#define PROJ_BTN_DELAY 4 // amount of 150ms periods for button state, at pre-last iteration triggers button action
 
 #define PROJ_PWR_LEVEL_MAX 26
 
-#define PROJ_PWR_RISE_DELAY 3 // number of consequent times for ADC checks to trigger single rise
+#define PROJ_PWR_RISE_DELAY 3 // number of consequent times for ADC checks to trigger single rise in certain cases
 
 volatile GPIObits_t gp_shadow;
 
@@ -235,45 +266,24 @@ void isr(void) __at(0x0004)
     asm("clrf 1"); /* TMR0 = 0; avoid ISR */ \
     PROJ_INLINED_ISR_REPLACEMENT(lbl_name_exit)
 
-/*
-uint8_t RunADC_8bit(uint8_t ch) {
-    // ch=0..3
-    ADCON0 = 0x01 | (uint8_t)(ch << 2);// ADON=1 + set channel
-    __delay_us(PROJ_ADC_TIME_US + 16); // only needed on re-acquisition
-    ADCON0bits.GO_DONE = 1;
-    __delay_us(PROJ_ADC_TIME_US);
-    while(ADCON0bits.GO_DONE) {
-        // w8
-    }
-    return ADRESH;
-}
 
-// runs adc on PROJ_ADC_CH_VOL, result is in ADRESH (30); relies on bank 0 being selected
-void fast_RunADC_8() {
-    asm("movlw " AUX_STRINGIFY((1 | (PROJ_ADC_CH_VOL << 2))));
-    asm("movwf 31"); // ADCON0 = w
-    asm("bsf 31,1"); // ADCON0bits.GO_DONE = 1;
-    //asm("nop"); asm("nop"); // wait PROJ_ADC_TIME_US
-    asm("labe_fast_RunADC_8__cycle:");
-    asm("btfsc 31,1"); // while(ADCON0bits.GO_DONE)
-    asm("goto labe_fast_RunADC_8__cycle");
-    // asm("return"); // auto generated
-}
-//*/
 
+// sets up adc on PROJ_ADC_CH_VOL; relies on bank 0 being selected
 #define PROJ_ADC_SETUP__WHEN_BANK0() \
     asm("movlw " AUX_STRINGIFY((1 | (PROJ_ADC_CH_VOL << 2)))); \
     asm("movwf 31"); // ADCON0 = w
 
+// triggers ADC start; relies on bank 0 being selected
 #define PROJ_ADC_START() \
     asm("bsf 31,1"); // ADCON0bits.GO_DONE = 1;
 
+// awaits ADC completion, result is in ADRESH (30); relies on bank 0 being selected
 #define PROJ_ADC_WAIT(lbl_name) \
     asm(""lbl_name":"); \
     asm("btfsc 31,1"); /* while(ADCON0bits.GO_DONE) */ \
     asm("goto "lbl_name);
 
-// similar to fast_RunADC_8; erases tmp_ctr and tmp_ctr2 vars
+// erases tmp_ctr and tmp_ctr2 vars
 void fast_RunADC_8_rising() {
     asm("movlw 5");
     asm("movwf _tmp_ctr"); // tmp_ctr = 5
@@ -405,7 +415,7 @@ void aux_delay_generic() {
     asm("labe_aux_delay_6:"); asm("nop");
     asm("labe_aux_delay_5:"); asm("nop");
     asm("labe_aux_delay_4:");
-    // 'return' is auto-geerated
+    // 'return' is auto-generated
 }
 #define AUX_DELAY_1 asm("nop");
 #define AUX_DELAY_2 asm("nop"); asm("nop");
@@ -945,7 +955,7 @@ void main() {
         PROJ_ADC_START()
         PROJ_CATCH_AVOID_ISR("labe_main__intercept_isr", 2) // 2 => at least 512 tacts until isr
         // main part:
-            PROJ_ADC_WAIT("labe_main__adc")
+            PROJ_ADC_WAIT("labe_main__adc") // TODO if ADC time selection changes to 4us - explicit awaiting can be omitted in this place
 #define VAR_ADCVAL "30" // avoid copying ADC result to minimize executed code
 //            asm("movf 30,w"); // w = ADRESH
 //            asm("movwf _tmp_ctr"); // tmp_ctr = w (ADC result)
@@ -1120,6 +1130,7 @@ void main() {
                 asm("skipz");
                 asm("goto labe_main__btn_processed");
                 // if btn_timer == (PROJ_BTN_DELAY-1)
+                // TODO asmify if keep this
                 { // handle btn
                     g_thr += PROJ_THR_STEP;
                     if(g_thr > PROJ_THR_MAX) {
@@ -1147,3 +1158,14 @@ void main() {
             asm("bcf 3,5"); // ensure bank0 selected
         asm("goto labe_main__cycle");
 } //
+
+
+
+asm("global _aux_version_info_footer");
+void aux_version_info_footer(void) __at(0x03FF - 5) {
+    asm("retlw " AUX_STRINGIFY(FW_VER_MAJOR));
+    asm("retlw " AUX_STRINGIFY(FW_VER_MINOR));
+    asm("retlw " AUX_STRINGIFY(FW_VER_PATCH));
+    asm("retlw " AUX_STRINGIFY(FW_VER_OPTION));
+    // 'return' is auto-generated here so 1 last byte is skipped to ensure it won't erase OSCCAL
+}
