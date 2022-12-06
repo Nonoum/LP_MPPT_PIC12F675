@@ -103,11 +103,28 @@
 //END CONFIG
 
 
+/*
+    PROJ_CONST_THR notes:
+    - for now using a constant hard-hardcoded threshold value (with hardcoded ifdef-generated multiplication function);
+    - planning to compile several versions with different offsets for the value to compensate input diode Vf;
+
+    Input diode Vf (voltage drop on the input shottky diode):
+    - due to scheme specifics measurings of voltage is done after diode(s)*
+        *could be done before diode if only one solar panel is used (one parallel connection);
+        *if several panels are connected in parallel - each 'positive' wire should be connected through individual diode;
+    - when measuring raw (no load/OCV) voltage - the diode current is minimum, diode Vf is minimum and can be negligible;
+    - when measuring voltage during load - Vf is larger and depends on current, specific diode, diode temperature,
+        so to expect a correct(more or less) percentage of raw(no load/OCV) voltage on the panel(s) - some offset of diode Vf should be considered,
+        so: several versions of FW with different hardcoded THR would be available to accomodate target case the best way;
+    - current dependency: for big current Vf would be bigger and appropriate offset (for maximum expected current) should be used to maximize output power (+minimize current fluctuations);
+    - other offset considerations: it's better to offset THR a little lower (linear loss comparing to MPPT) than higher (rather exponencial loss according to solar panels U/I characteristics);
+*/
+#define PROJ_CONST_THR 198 // hard constant threshold percentage (x/255) of raw(no load/OCV) voltage to hold
 
 // version info (3 numbers and letter) is accessible at top program-memory addresses right before OSCCAL (retlw commands)
 #define FW_VER_MAJOR 0
-#define FW_VER_MINOR 2
-#define FW_VER_PATCH 0
+#define FW_VER_MINOR 3
+#define FW_VER_THR PROJ_CONST_THR
 #define FW_VER_OPTION 'A' // some letter describing topology/configuration of compiled code. default is 'A'
 /*
     FW_VER_OPTION vaiants:
@@ -145,13 +162,7 @@
 // ADC allows up to 10k resistance, thus for 5vols it's NOT LESS than 0.5ma current for each ADC channel
 #define PROJ_ADC_ADCS 0b010 // conversion time
 
-#define PROJ_THR_START 204 // initial threshold percentage (x/255) of raw(no load) voltage to hold
-#define PROJ_THR_MIN 199 // min, including (round-robin)
-#define PROJ_THR_MAX 219 // max, including (round-robin)
 #define PROJ_THR_DIFF_INSTANT_DROPOUT 6 // thr_hi - adcval >= 'this' ? full power drop
-#define PROJ_THR_STEP 5 // threshold percantage (x/255) to add at button press
-#define PROJ_BTN_DELAY 4 // amount of 150ms periods for button state, at pre-last iteration triggers button action
-
 #define PROJ_PWR_LEVEL_MAX 26
 
 #define PROJ_PWR_RISE_DELAY 3 // number of consequent times for ADC checks to trigger single rise in certain cases
@@ -196,12 +207,18 @@ uint8_t dirty_flags;
 
 
 //#define PROJ_DEBUG_BTN
-
 // local isr vars
 #ifdef PROJ_DEBUG_BTN
+    #define PROJ_THR_START 204 // initial threshold percentage (x/255) of raw(no load) voltage to hold
+    #define PROJ_THR_MIN 199 // min, including (round-robin)
+    #define PROJ_THR_MAX 219 // max, including (round-robin)
+    #define PROJ_THR_STEP 5 // threshold percantage (x/255) to add at button press
+    #define PROJ_BTN_DELAY 4 // amount of 150ms periods for button state, at pre-last iteration triggers button action
+
     #define PROJ_ISR_CTR_INITER_T0 2 // 128 in steps by 64
     #define PROJ_ISR_CTR_INITER_T1 8 // 1s in steps by 128
 
+    // local isr vars
     uint8_t isr_ctr_t0 = PROJ_ISR_CTR_INITER_T0;
     uint8_t isr_ctr_t1 = PROJ_ISR_CTR_INITER_T1;
 #else
@@ -334,13 +351,83 @@ void fast_RunADC_8_rising() {
     asm("goto labe_fast_RunADC_8_rising__rising_cycle");
 }
 
-
-// TODO multiplication will be optimized to reduce delay, likely in one of two ways (if calibration is fully discarded):
-// 1. shorter multiply-by-constant code
-// 2. mapped table (addwf 2,...; retlw ... retlw) with around 220-230 bytes of program memory
-// another option is several predefined multiply-by-constant blocks with combined tabled jump to required one
 uint8_t fast_mul_8x8_res_h;
 uint8_t fast_mul_8x8_res_l;
+
+#ifdef PROJ_CONST_THR // ---------------------------------
+
+// multiplies w * PROJ_CONST_THR -> fast_mul_8x8_res_h:fast_mul_8x8_res_l
+void fast_mul_8x8() {
+    asm("clrf _fast_mul_8x8_res_h");
+    asm("clrf _fast_mul_8x8_res_l");
+
+    #if (PROJ_CONST_THR & 0x80)
+        asm("addwf _fast_mul_8x8_res_l,f");
+        //asm("skipnc"); // redundant for the first multiplied bit
+        //asm("incf _fast_mul_8x8_res_h"); // redundant for the first multiplied bit
+
+        //asm("clrc"); // post 7, pre 6 // redundant for the first multiplied bit
+        asm("rlf _fast_mul_8x8_res_l,f");
+        asm("rlf _fast_mul_8x8_res_h,f");
+    #endif
+    #if (PROJ_CONST_THR & 0x40)
+        asm("addwf _fast_mul_8x8_res_l,f");
+        asm("skipnc");
+        asm("incf _fast_mul_8x8_res_h");
+            asm("clrc"); // post 6, pre 5 // only needed if changed after last RRF command
+    #endif
+            asm("rlf _fast_mul_8x8_res_l,f");
+            asm("rlf _fast_mul_8x8_res_h,f");
+    #if (PROJ_CONST_THR & 0x20)
+        asm("addwf _fast_mul_8x8_res_l,f");
+        asm("skipnc");
+        asm("incf _fast_mul_8x8_res_h");
+            asm("clrc"); // post 5, pre 4 // only needed if changed after last RRF command
+    #endif
+            asm("rlf _fast_mul_8x8_res_l,f");
+            asm("rlf _fast_mul_8x8_res_h,f");
+    #if (PROJ_CONST_THR & 0x10)
+        asm("addwf _fast_mul_8x8_res_l,f");
+        asm("skipnc");
+        asm("incf _fast_mul_8x8_res_h");
+            asm("clrc"); // post 4, pre 3 // only needed if changed after last RRF command
+    #endif
+            asm("rlf _fast_mul_8x8_res_l,f");
+            asm("rlf _fast_mul_8x8_res_h,f");
+    #if (PROJ_CONST_THR & 0x08)
+        asm("addwf _fast_mul_8x8_res_l,f");
+        asm("skipnc");
+        asm("incf _fast_mul_8x8_res_h");
+            asm("clrc"); // post 2, pre 2 // only needed if changed after last RRF command
+    #endif
+            asm("rlf _fast_mul_8x8_res_l,f");
+            asm("rlf _fast_mul_8x8_res_h,f");
+    #if (PROJ_CONST_THR & 0x04)
+        asm("addwf _fast_mul_8x8_res_l,f");
+        asm("skipnc");
+        asm("incf _fast_mul_8x8_res_h");
+            asm("clrc"); // post 2, pre 1 // only needed if changed after last RRF command
+    #endif
+            asm("rlf _fast_mul_8x8_res_l,f");
+            asm("rlf _fast_mul_8x8_res_h,f");
+    #if (PROJ_CONST_THR & 0x02)
+        asm("addwf _fast_mul_8x8_res_l,f");
+        asm("skipnc");
+        asm("incf _fast_mul_8x8_res_h");
+            asm("clrc"); // post 1, pre 0 // only needed if changed after last RRF command
+    #endif
+            asm("rlf _fast_mul_8x8_res_l,f");
+            asm("rlf _fast_mul_8x8_res_h,f");
+    #if (PROJ_CONST_THR & 0x01)
+        asm("addwf _fast_mul_8x8_res_l,f");
+        asm("skipnc");
+        asm("incf _fast_mul_8x8_res_h");
+    #endif
+        // asm("return"); // auto generated
+}
+
+#else // -------------------------------------------------
+
 uint8_t fast_mul_8x8_input1; // input2 is w
 void fast_mul_8x8() {
     asm("clrf _fast_mul_8x8_res_h");
@@ -349,10 +436,10 @@ void fast_mul_8x8() {
     asm("btfss _fast_mul_8x8_input1,7");
     asm("goto labe_fast_mul_8x8__post7");
         asm("addwf _fast_mul_8x8_res_l,f");
-        asm("skipnc");
-        asm("incf _fast_mul_8x8_res_h");
+        //asm("skipnc"); // redundant for the first multiplied bit
+        //asm("incf _fast_mul_8x8_res_h"); // redundant for the first multiplied bit
 
-        asm("clrc"); // post 7, pre 6
+        //asm("clrc"); // post 7, pre 6 // redundant for the first multiplied bit
         asm("rlf _fast_mul_8x8_res_l,f");
         asm("rlf _fast_mul_8x8_res_h,f");
     asm("labe_fast_mul_8x8__post7:");
@@ -419,8 +506,12 @@ void fast_mul_8x8() {
     asm("labe_fast_mul_8x8__post0:");
     // asm("return"); // auto generated
 }
+#endif // ------------------------------------------------
 
+#ifndef PROJ_CONST_THR
 uint8_t g_thr = PROJ_THR_START;
+#endif
+
 uint8_t last_raw_adc_val = 0;
 uint8_t pending_raw_adc_val;
 uint8_t thr_min;
@@ -960,10 +1051,15 @@ void main() {
     }
     {
         //asm("bcf 3,5"); // ensure bank0 selected
+#ifdef PROJ_CONST_THR
+        asm("movf _last_raw_adc_val,w");
+        asm("fcall _fast_mul_8x8");
+#else
         asm("movf _last_raw_adc_val,w"); // TODO input1 can be union with last_raw_adc_val to save 2 commands
         asm("movwf _fast_mul_8x8_input1");
         asm("movf _g_thr,w");
         asm("fcall _fast_mul_8x8");
+#endif
         asm("movf _fast_mul_8x8_res_h,w");
         asm("movwf _thr_hi"); // thr_hi = last_raw_adc_val * g_thr / 256
         //
@@ -1052,6 +1148,7 @@ void main() {
                 asm("bcf _gp_shadow," AUX_STRINGIFY(PROJ_BIT_NUM_OUT_CAP));
                 asm("movf _gp_shadow,w");
                 asm("movwf 5"); // detach cap, give some time to establish raw voltage
+                asm("bsf _gp_shadow," AUX_STRINGIFY(PROJ_BIT_NUM_OUT_CAP)); // prepare shadow reg with re-attached cap in advance
                 // now flags
                 asm("bcf _dirty_flags," AUX_STRINGIFY(APP_DIRTY_FLAG_TRAW));
                 asm("movlw " AUX_STRINGIFY(PROJ_PWR_RISE_DELAY)); // w = PROJ_PWR_RISE_DELAY
@@ -1064,7 +1161,6 @@ void main() {
                 // and run adc and bring cap back
                 asm("fcall _fast_RunADC_8_rising");
                 // attach cap first
-                asm("bsf _gp_shadow," AUX_STRINGIFY(PROJ_BIT_NUM_OUT_CAP));
                 asm("movf _gp_shadow,w");
                 asm("movwf 5"); // attach capacitor
                 // now save result
@@ -1097,15 +1193,21 @@ void main() {
                 asm("skipnz");
                 asm("goto labe_main__cycle"); // no changes - to cycle start
                 // different - needs recalculation
-                asm("movf _pending_raw_adc_val,w");
-                asm("movwf _last_raw_adc_val");
-                asm("movwf _fast_mul_8x8_input1");
                 //
                 asm("movlw " AUX_STRINGIFY(PROJ_PWR_RISE_DELAY)); // w = PROJ_PWR_RISE_DELAY
                 asm("movwf _app_rise_counter"); // app_rise_counter = PROJ_PWR_RISE_DELAY
+#ifdef PROJ_CONST_THR
+                asm("movf _pending_raw_adc_val,w");
+                asm("movwf _last_raw_adc_val");
+                asm("fcall _fast_mul_8x8");
+#else
+                asm("movf _pending_raw_adc_val,w");
+                asm("movwf _last_raw_adc_val");
+                asm("movwf _fast_mul_8x8_input1");
 
                 asm("movf _g_thr,w");
                 asm("fcall _fast_mul_8x8");
+#endif
                 asm("movf _fast_mul_8x8_res_h,w");
                 asm("movwf _thr_hi"); // thr_hi = last_raw_adc_val * g_thr / 256
                 //
@@ -1202,7 +1304,7 @@ asm("global _aux_version_info_footer");
 void aux_version_info_footer(void) __at(0x03FF - 5) {
     asm("retlw " AUX_STRINGIFY(FW_VER_MAJOR));
     asm("retlw " AUX_STRINGIFY(FW_VER_MINOR));
-    asm("retlw " AUX_STRINGIFY(FW_VER_PATCH));
+    asm("retlw " AUX_STRINGIFY(FW_VER_THR));
     asm("retlw " AUX_STRINGIFY(FW_VER_OPTION));
     // 'return' is auto-generated here so 1 last byte is skipped to ensure it won't erase OSCCAL
 }
