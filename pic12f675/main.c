@@ -106,7 +106,7 @@
 
 // version info (3 numbers and letter) is accessible at top program-memory addresses right before OSCCAL (retlw commands)
 #define FW_VER_MAJOR 0
-#define FW_VER_MINOR 1
+#define FW_VER_MINOR 2
 #define FW_VER_PATCH 0
 #define FW_VER_OPTION 'A' // some letter describing topology/configuration of compiled code. default is 'A'
 /*
@@ -170,21 +170,17 @@ uint8_t app_rise_counter;
 #define PROJ_OUT_FET_PINS_NEG_MASK (~PROJ_OUT_FET_PINS_MASK)
 
 uint8_t dirty_flags;
-#define APP_DIRTY_FLAG_1000MS 0 // bit numbers. if another 1000ms have passed and requires processing
-#define APP_DIRTY_FLAG_150MS 1
+#define APP_DIRTY_FLAG_TRAW 0 // bit numbers. if another 1000ms have passed and requires processing
+#define APP_DIRTY_FLAG_TDEBUG 1 // debug time (not used if not debug build)
 #define APP_DIRTY_FLAG_THRS 2 // if thresholds need recalculation
 #define APP_DIRTY_FLAG_NOP1 3
 #define APP_DIRTY_FLAG_NOP2 4
-
-#define PROJ_INITER_128MS_S0 2 // 128 in steps by 64
-#define PROJ_INITER_1S_S1 8 // 1s in steps by 128
 
 /*
     OSSCAL deviation: on my PIC it was x1.65 difference between min and max frequency (osccal 0x00-min freq and 0xFC-max freq)
     with typical calibrated values checked on 5 pics being around 0x24 - 0x44, so setting osccal to max value is assumed
     to multiply actual frequency by around x1.5 (comparing to 4mhz spec).
 */
-
 
 // relies on active bank 0
 #define PROJ_ASSIGN_OUT_1 \
@@ -199,10 +195,20 @@ uint8_t dirty_flags;
     asm("movwf _gp_shadow"); /* refresh gp_shadow */
 
 
+//#define PROJ_DEBUG_BTN
 
 // local isr vars
-uint8_t isr_ctr_128_s0 = PROJ_INITER_128MS_S0;
-uint8_t isr_ctr_1s_s1 = PROJ_INITER_1S_S1;
+#ifdef PROJ_DEBUG_BTN
+    #define PROJ_ISR_CTR_INITER_T0 2 // 128 in steps by 64
+    #define PROJ_ISR_CTR_INITER_T1 8 // 1s in steps by 128
+
+    uint8_t isr_ctr_t0 = PROJ_ISR_CTR_INITER_T0;
+    uint8_t isr_ctr_t1 = PROJ_ISR_CTR_INITER_T1;
+#else
+    #define PROJ_ISR_CTR_INITER_T0 16
+
+    uint8_t isr_ctr_t0 = PROJ_ISR_CTR_INITER_T0;
+#endif
 
 // isr cache
 uint8_t temp_w;
@@ -220,16 +226,24 @@ void isr(void) __at(0x0004)
 
     PROJ_ASSIGN_OUT_0 // we actually should never get here as we catch upcoming timer interrupt and process manually
     // ++64ms
-    asm("decfsz _isr_ctr_128_s0,f"); // --ctr, test
+#ifdef PROJ_DEBUG_BTN
+    asm("decfsz _isr_ctr_t0,f"); // --ctr, test
     asm("goto labe_isr_out");
-        asm("bsf _dirty_flags," AUX_STRINGIFY(APP_DIRTY_FLAG_150MS));
-        asm("movlw " AUX_STRINGIFY(PROJ_INITER_128MS_S0));
-        asm("movwf _isr_ctr_128_s0"); // reinit ctr
-        asm("decfsz _isr_ctr_1s_s1,f"); // --ctr, test
+        asm("bsf _dirty_flags," AUX_STRINGIFY(APP_DIRTY_FLAG_TDEBUG));
+        asm("movlw " AUX_STRINGIFY(PROJ_ISR_CTR_INITER_T0));
+        asm("movwf _isr_ctr_t0"); // reinit ctr
+        asm("decfsz _isr_ctr_t1,f"); // --ctr, test
         asm("goto labe_isr_out");
-            asm("bsf _dirty_flags," AUX_STRINGIFY(APP_DIRTY_FLAG_1000MS));
-            asm("movlw " AUX_STRINGIFY(PROJ_INITER_1S_S1));
-            asm("movwf _isr_ctr_1s_s1"); // reinit ctr
+            asm("bsf _dirty_flags," AUX_STRINGIFY(APP_DIRTY_FLAG_TRAW));
+            asm("movlw " AUX_STRINGIFY(PROJ_ISR_CTR_INITER_T1));
+            asm("movwf _isr_ctr_t1"); // reinit ctr
+#else
+    asm("decfsz _isr_ctr_t0,f"); // --ctr, test
+    asm("goto labe_isr_out");
+        asm("bsf _dirty_flags," AUX_STRINGIFY(APP_DIRTY_FLAG_TRAW));
+        asm("movlw " AUX_STRINGIFY(PROJ_ISR_CTR_INITER_T0));
+        asm("movwf _isr_ctr_t0"); // reinit ctr
+#endif
     asm("labe_isr_out:");
     asm("bcf 11,2"); // INTCONbits.T0IF = 0; // regardless of current bank
 
@@ -242,21 +256,33 @@ void isr(void) __at(0x0004)
     asm("retfie"); // compiler auto-generates "return" here, nevermind at the moment, just use explicit retfie.
 }
 
+#ifdef PROJ_DEBUG_BTN
 // >= 3 tacts: 3 or 8 or 10
 #define PROJ_INLINED_ISR_REPLACEMENT(lbl_name) \
-    asm("decfsz _isr_ctr_128_s0,f"); \
+    asm("decfsz _isr_ctr_t0,f"); \
     asm("goto "lbl_name); \
-        asm("bsf _dirty_flags," AUX_STRINGIFY(APP_DIRTY_FLAG_150MS)); \
-        asm("movlw " AUX_STRINGIFY(PROJ_INITER_128MS_S0)); \
-        asm("movwf _isr_ctr_128_s0"); \
-        asm("decfsz _isr_ctr_1s_s1,f"); \
+        asm("bsf _dirty_flags," AUX_STRINGIFY(APP_DIRTY_FLAG_TDEBUG)); \
+        asm("movlw " AUX_STRINGIFY(PROJ_ISR_CTR_INITER_T0)); \
+        asm("movwf _isr_ctr_t0"); \
+        asm("decfsz _isr_ctr_t1,f"); \
         asm("goto "lbl_name); \
-            asm("bsf _dirty_flags," AUX_STRINGIFY(APP_DIRTY_FLAG_1000MS)); \
-            asm("movlw " AUX_STRINGIFY(PROJ_INITER_1S_S1)); \
-            asm("movwf _isr_ctr_1s_s1"); \
+            asm("bsf _dirty_flags," AUX_STRINGIFY(APP_DIRTY_FLAG_TRAW)); \
+            asm("movlw " AUX_STRINGIFY(PROJ_ISR_CTR_INITER_T1)); \
+            asm("movwf _isr_ctr_t1"); \
     asm(""lbl_name":");
+#else
+// >= 3 tacts: 3 or 5
+#define PROJ_INLINED_ISR_REPLACEMENT(lbl_name) \
+    asm("decfsz _isr_ctr_t0,f"); \
+    asm("goto "lbl_name); \
+        asm("bsf _dirty_flags," AUX_STRINGIFY(APP_DIRTY_FLAG_TRAW)); \
+        asm("movlw " AUX_STRINGIFY(PROJ_ISR_CTR_INITER_T0)); \
+        asm("movwf _isr_ctr_t0"); \
+    asm(""lbl_name":");
+#endif
 
-// >= 5 tacts: 5 or 5+(3 or 8 or 10) == 5 or 8 or 13 or 15 tacts
+// >= 5 tacts: 5 or 5+(3 or 8 or 10) == 5 or 8 or 13 or 15 tacts :: debug
+// >= 5 tacts: 5 or 5+(3 or 5) == 5 or 8 or 10 tacts             :: non-debug
 #define PROJ_CATCH_AVOID_ISR(lbl_name_exit, n_timer_periods) \
     asm("movlw " AUX_STRINGIFY(256-n_timer_periods)); \
     /* asm("bcf	3,5"); select bank 0 (for tmr0 reg) */ \
@@ -396,6 +422,7 @@ void fast_mul_8x8() {
 
 uint8_t g_thr = PROJ_THR_START;
 uint8_t last_raw_adc_val = 0;
+uint8_t pending_raw_adc_val;
 uint8_t thr_min;
 uint8_t thr_hi; // high level voltage threshold
 uint8_t thr_lo; // low/instant-off voltage threshold
@@ -914,7 +941,7 @@ void main() {
     // pre-init raw adc with pre-wait 1 second
     asm("bcf 3,5"); // ensure bank0 selected
     asm("labe_main__preinit_raw_adc:");
-    asm("btfss _dirty_flags," AUX_STRINGIFY(APP_DIRTY_FLAG_1000MS));
+    asm("btfss _dirty_flags," AUX_STRINGIFY(APP_DIRTY_FLAG_TRAW));
     asm("goto labe_main__preinit_raw_adc");
     asm("clrf _dirty_flags");
     {
@@ -1018,15 +1045,15 @@ void main() {
         asm("goto labe_main__cycle");
             // something is dirty
             //asm("bcf 3,5"); // ensure bank0 selected
-            asm("btfss _dirty_flags," AUX_STRINGIFY(APP_DIRTY_FLAG_1000MS));
-            asm("goto labe_main__1000ms_non_dirty");
+            asm("btfss _dirty_flags," AUX_STRINGIFY(APP_DIRTY_FLAG_TRAW));
+            asm("goto labe_main__traw_non_dirty");
                 // do these steps first...
                 PROJ_ASSIGN_OUT_0 // ensure load is detached first
                 asm("bcf _gp_shadow," AUX_STRINGIFY(PROJ_BIT_NUM_OUT_CAP));
                 asm("movf _gp_shadow,w");
                 asm("movwf 5"); // detach cap, give some time to establish raw voltage
                 // now flags
-                asm("bcf _dirty_flags," AUX_STRINGIFY(APP_DIRTY_FLAG_1000MS));
+                asm("bcf _dirty_flags," AUX_STRINGIFY(APP_DIRTY_FLAG_TRAW));
                 asm("movlw " AUX_STRINGIFY(PROJ_PWR_RISE_DELAY)); // w = PROJ_PWR_RISE_DELAY
                 asm("movwf _app_rise_counter"); // app_rise_counter = PROJ_PWR_RISE_DELAY
                 // .. gonna put some dirt in your flags
@@ -1036,14 +1063,15 @@ void main() {
 
                 // and run adc and bring cap back
                 asm("fcall _fast_RunADC_8_rising");
-                asm("movf 30,w"); // w = ADRESH (ADC result)
-                asm("movwf _last_raw_adc_val");
-
+                // attach cap first
                 asm("bsf _gp_shadow," AUX_STRINGIFY(PROJ_BIT_NUM_OUT_CAP));
                 asm("movf _gp_shadow,w");
                 asm("movwf 5"); // attach capacitor
+                // now save result
+                asm("movf 30,w"); // w = ADRESH (ADC result)
+                asm("movwf _pending_raw_adc_val");
                 asm("goto labe_main__cycle"); // enough delaying work - to cycle start
-            asm("labe_main__1000ms_non_dirty:");
+            asm("labe_main__traw_non_dirty:");
 
 
             // cascade nops - used together (nop2 is nested in nop1 to minimize cycle path delay)
@@ -1063,11 +1091,19 @@ void main() {
             asm("btfss _dirty_flags," AUX_STRINGIFY(APP_DIRTY_FLAG_THRS));
             asm("goto labe_main__thr_non_dirty");
                 asm("bcf _dirty_flags," AUX_STRINGIFY(APP_DIRTY_FLAG_THRS));
+                //
+                asm("movf _pending_raw_adc_val,w"); // TODO input1 can be union with last_raw_adc_val to save 2 commands
+                asm("xorwf _last_raw_adc_val,w");
+                asm("skipnz");
+                asm("goto labe_main__cycle"); // no changes - to cycle start
+                // different - needs recalculation
+                asm("movf _pending_raw_adc_val,w");
+                asm("movwf _last_raw_adc_val");
+                asm("movwf _fast_mul_8x8_input1");
+                //
                 asm("movlw " AUX_STRINGIFY(PROJ_PWR_RISE_DELAY)); // w = PROJ_PWR_RISE_DELAY
                 asm("movwf _app_rise_counter"); // app_rise_counter = PROJ_PWR_RISE_DELAY
 
-                asm("movf _last_raw_adc_val,w"); // TODO input1 can be union with last_raw_adc_val to save 2 commands
-                asm("movwf _fast_mul_8x8_input1");
                 asm("movf _g_thr,w");
                 asm("fcall _fast_mul_8x8");
                 asm("movf _fast_mul_8x8_res_h,w");
@@ -1083,10 +1119,10 @@ void main() {
                 asm("goto labe_main__cycle"); // enough delaying work - to cycle start
             asm("labe_main__thr_non_dirty:");
 
-
-            asm("btfss _dirty_flags," AUX_STRINGIFY(APP_DIRTY_FLAG_150MS));
-            asm("goto labe_main__150ms_non_dirty");
-                asm("bcf _dirty_flags," AUX_STRINGIFY(APP_DIRTY_FLAG_150MS));
+#ifdef PROJ_DEBUG_BTN
+            asm("btfss _dirty_flags," AUX_STRINGIFY(APP_DIRTY_FLAG_TDEBUG));
+            asm("goto labe_main__tdebug_non_dirty");
+                asm("bcf _dirty_flags," AUX_STRINGIFY(APP_DIRTY_FLAG_TDEBUG));
                 //asm("bsf _dirty_flags," AUX_STRINGIFY(APP_DIRTY_FLAG_NOP1));
                 //asm("bsf _dirty_flags," AUX_STRINGIFY(APP_DIRTY_FLAG_NOP2));
                 //asm("bcf 3,5"); // ensure bank0 selected
@@ -1154,8 +1190,9 @@ void main() {
                     gp_shadow.PROJ_BIT_OUT_DEBUG = ! gp_shadow.PROJ_BIT_OUT_DEBUG; // invert led
                     GPIObits = gp_shadow;
                 }
-            asm("labe_main__150ms_non_dirty:");
+            asm("labe_main__tdebug_non_dirty:");
             asm("bcf 3,5"); // ensure bank0 selected
+#endif
         asm("goto labe_main__cycle");
 } //
 
