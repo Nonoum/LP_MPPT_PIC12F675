@@ -1,5 +1,5 @@
 /*
-    A simple MPPT controller with non-canonical design, developed By Evgeniy Evstratov, Autumn 2022.
+    A simple MPPT controller with non-canonical design, developed By Evgeniy Evstratov, Autumn 2022 and further.
 
     This Solar controller is being developed in these dark times when russia is destroying energetic system of my country and has already caused full-scale blackout.
 
@@ -51,20 +51,22 @@
             deltaV was 3.1V and measured efficiency was 92.5%.
         - presumably higher voltage linear stabilizer (5v only, more = not allowed for PIC) would yield higher efficiency (or at least with some other mosfets) - this is to be tested;
         - Miller Effect: wasn't observed in prototype with my testing in artificial environment (tested single output driving pin vs dual output driving pin at 3.3v MCU voltage)
-            * however it was tested with output voltages from 2v to 4v, and the effect could rather be noticed at higher output voltages - this is to be tested;
-            * 'noticed' in this case means any significant impact on efficiency;
+            * it was tested with output voltages from 2v to 4v and 12v;
+            * 'noticed' in this case means any significant impact on efficiency (around 1% improvement was noticed though it can be due to measuring inaccuracy);
             * mosfets with larger parasitic capacitance could defenitely require doubled/tripled MCU output pins to drive them at high frequencies;
             * PIC16F676 could be (relatively)easily adapted to use entire portB (6 pins) for mosfet driving;
             * mosfet that connects capacitors is rarely triggered so it can (and should) be more powerful (lower RdsON) - planned to test IRL2203 for this;
 
     Pulsation notes:
-        - output voltage pulsations looked good for current FW version although they were evaluated with simple testers (I don't have an oscilloscope);
+        - output voltage pulsations looked good for 0.1 FW version (and much better since 0.3) although they were evaluated with simple testers (I don't have an oscilloscope);
         - even higher pulsations are *presumably okay for charging batteries with good BMS;
         - increasing capacitance (both buffer and output caps) should smooth pulsations very well (partly tested);
         - capacitance can be smaller or bigger than in prototype described above, suggestions for buffer and output caps are:
             -- minimum: 1000uf (buffer), 2000uf(output);
             -- recommended: 3000uf+ (buffer), 5000uf+(output);
         - for future addition of output voltage limitation feedback there are expected to be rare more substantial drop-offs (when reaching voltage limit) for the implementation that I have in mind;
+        - pulsations can be induced by MPP overshoot, which can significantly reduce input current and thus generated power - see "PROJ_CONST_THR" notes and "Input diode Vf" notes;
+        - pulsations can be induced by partial shading (when shading occurs somewhere inseries);
 
     PWM notes: code does manual pwm with duty (open output mosfet) lengths starting from 2us and duty/nonduty ratio up to 1:1 (less or much-less duty depending on various circumstances).
 
@@ -111,13 +113,13 @@
     Input diode Vf (voltage drop on the input shottky diode):
     - due to scheme specifics measurings of voltage is done after diode(s)*
         *could be done before diode if only one solar panel is used (one parallel connection);
-        *if several panels are connected in parallel - each 'positive' wire should be connected through individual diode;
+        *if several panels are connected in parallel - each 'positive' wire should be connected through an individual diode (or each negative, but not mixed);
     - when measuring raw (no load/OCV) voltage - the diode current is minimum, diode Vf is minimum and can be negligible;
     - when measuring voltage during load - Vf is larger and depends on current, specific diode, diode temperature,
         so to expect a correct(more or less) percentage of raw(no load/OCV) voltage on the panel(s) - some offset of diode Vf should be considered,
         so: several versions of FW with different hardcoded THR would be available to accomodate target case the best way;
     - current dependency: for big current Vf would be bigger and appropriate offset (for maximum expected current) should be used to maximize output power (+minimize current fluctuations);
-    - other offset considerations: it's better to offset THR a little lower (linear loss comparing to MPPT) than higher (rather exponencial loss according to solar panels U/I characteristics);
+    - other offset considerations: it's better to offset THR a little lower (linear loss comparing to MPP) than higher (rather exponencial loss according to solar panels U/I characteristics);
 */
 #define PROJ_CONST_THR 198 // hard constant threshold percentage (x/255) of raw(no load/OCV) voltage to hold
 
