@@ -125,7 +125,7 @@
 
 // version info (3 numbers and letter) is accessible at top program-memory addresses right before OSCCAL (retlw commands)
 #define FW_VER_MAJOR 0
-#define FW_VER_MINOR 3
+#define FW_VER_MINOR 4
 #define FW_VER_THR PROJ_CONST_THR
 #define FW_VER_OPTION 'A' // some letter describing topology/configuration of compiled code. default is 'A'
 /*
@@ -148,18 +148,11 @@
 #define PROJ_TMR_PRESCALE (0b111) // x256
 
 // pins / topology
-#define PROJ_BIT_IN_ADC_VOL GPIO2 // voltage divider for power line - calculate so that it maxes out to chip PSU level (used 3.3 regulator)
-#define PROJ_BIT_IN_BTN GPIO4 // button press (see PROJ_BTN_DELAY) adjusts percentage level of raw voltage to hold
-#define PROJ_BIT_OUT_CAP GPIO1 // N-channel mosfet controlling power capacitor, PULLUP external resistor 200k
-#define PROJ_BIT_OUT_OUT GPIO0 // N-channel mosfet (or 'enable' pin on output line) controlling output line, PULLDOWN external resistor
-#define PROJ_BIT_OUT_DEBUG GPIO5 // output led, blinks wiht 0.1s intervals (0.1s ON / 0.1s OFF)
-
-#define PROJ_BIT_NUM_OUT_OUT 0 // GPIO0 (PROJ_BIT_OUT_OUT)
-#define PROJ_BIT_NUM_OUT_CAP 1 // GPIO1 (PROJ_BIT_OUT_CAP)
+#define PROJ_BIT_NUM_OUT_OUT 0 // GPIO0 : N-channel mosfet (or 'enable' pin on output line) controlling output line, PULLDOWN external resistor
+#define PROJ_BIT_NUM_OUT_CAP 1 // GPIO1 : N-channel mosfet controlling power capacitor, PULLUP external resistor 200k
 #define PROJ_BIT_NUM_IN_BTN 4 // GPIO4 (PROJ_BIT_IN_BTN)
-#define PROJ_BIT_NUM_OUT_DEBUG 5 // GPIO5 (PROJ_BIT_OUT_DEBUG)
-
-#define PROJ_ADC_CH_VOL 2 // ADC channel - AN2 (GPIO2)
+#define PROJ_BIT_NUM_OUT_DEBUG 5 // GPIO5
+#define PROJ_ADC_CH_VOL 2 // ADC channel - AN2 (GPIO2) : voltage divider for power line - calculate so that it maxes out to chip PSU level (used 3.3 regulator)
 
 // ADC allows up to 10k resistance, thus for 5vols it's NOT LESS than 0.5ma current for each ADC channel
 #define PROJ_ADC_ADCS 0b010 // conversion time
@@ -169,14 +162,12 @@
 
 #define PROJ_PWR_RISE_DELAY 3 // number of consequent times for ADC checks to trigger single rise in certain cases
 
-volatile GPIObits_t gp_shadow;
+GPIObits_t gp_shadow;
 
 uint8_t app_flags;
 #define APP_FLAG_LAST_BTN_ON 0
 #define APP_FLAG_TMP_BTN_ON 1
 
-uint8_t app_btn_timer;
-uint8_t app_debug_blinks;
 uint8_t app_rise_counter;
 
 #define PROJ_OUT_FET_PINS_MASK (1 << PROJ_BIT_NUM_OUT_OUT)
@@ -208,26 +199,9 @@ uint8_t dirty_flags;
     asm("movwf _gp_shadow"); /* refresh gp_shadow */
 
 
-//#define PROJ_DEBUG_BTN
 // local isr vars
-#ifdef PROJ_DEBUG_BTN
-    #define PROJ_THR_START 204 // initial threshold percentage (x/255) of raw(no load) voltage to hold
-    #define PROJ_THR_MIN 199 // min, including (round-robin)
-    #define PROJ_THR_MAX 219 // max, including (round-robin)
-    #define PROJ_THR_STEP 5 // threshold percantage (x/255) to add at button press
-    #define PROJ_BTN_DELAY 4 // amount of 150ms periods for button state, at pre-last iteration triggers button action
-
-    #define PROJ_ISR_CTR_INITER_T0 2 // 128 in steps by 64
-    #define PROJ_ISR_CTR_INITER_T1 8 // 1s in steps by 128
-
-    // local isr vars
-    uint8_t isr_ctr_t0 = PROJ_ISR_CTR_INITER_T0;
-    uint8_t isr_ctr_t1 = PROJ_ISR_CTR_INITER_T1;
-#else
-    #define PROJ_ISR_CTR_INITER_T0 16
-
-    uint8_t isr_ctr_t0 = PROJ_ISR_CTR_INITER_T0;
-#endif
+#define PROJ_ISR_CTR_INITER_T0 16
+uint8_t isr_ctr_t0 = PROJ_ISR_CTR_INITER_T0;
 
 // isr cache
 uint8_t temp_w;
@@ -245,24 +219,11 @@ void isr(void) __at(0x0004)
 
     PROJ_ASSIGN_OUT_0 // we actually should never get here as we catch upcoming timer interrupt and process manually
     // ++64ms
-#ifdef PROJ_DEBUG_BTN
-    asm("decfsz _isr_ctr_t0,f"); // --ctr, test
-    asm("goto labe_isr_out");
-        asm("bsf _dirty_flags," AUX_STRINGIFY(APP_DIRTY_FLAG_TDEBUG));
-        asm("movlw " AUX_STRINGIFY(PROJ_ISR_CTR_INITER_T0));
-        asm("movwf _isr_ctr_t0"); // reinit ctr
-        asm("decfsz _isr_ctr_t1,f"); // --ctr, test
-        asm("goto labe_isr_out");
-            asm("bsf _dirty_flags," AUX_STRINGIFY(APP_DIRTY_FLAG_TRAW));
-            asm("movlw " AUX_STRINGIFY(PROJ_ISR_CTR_INITER_T1));
-            asm("movwf _isr_ctr_t1"); // reinit ctr
-#else
     asm("decfsz _isr_ctr_t0,f"); // --ctr, test
     asm("goto labe_isr_out");
         asm("bsf _dirty_flags," AUX_STRINGIFY(APP_DIRTY_FLAG_TRAW));
         asm("movlw " AUX_STRINGIFY(PROJ_ISR_CTR_INITER_T0));
         asm("movwf _isr_ctr_t0"); // reinit ctr
-#endif
     asm("labe_isr_out:");
     asm("bcf 11,2"); // INTCONbits.T0IF = 0; // regardless of current bank
 
@@ -275,21 +236,6 @@ void isr(void) __at(0x0004)
     asm("retfie"); // compiler auto-generates "return" here, nevermind at the moment, just use explicit retfie.
 }
 
-#ifdef PROJ_DEBUG_BTN
-// >= 3 tacts: 3 or 8 or 10
-#define PROJ_INLINED_ISR_REPLACEMENT(lbl_name) \
-    asm("decfsz _isr_ctr_t0,f"); \
-    asm("goto "lbl_name); \
-        asm("bsf _dirty_flags," AUX_STRINGIFY(APP_DIRTY_FLAG_TDEBUG)); \
-        asm("movlw " AUX_STRINGIFY(PROJ_ISR_CTR_INITER_T0)); \
-        asm("movwf _isr_ctr_t0"); \
-        asm("decfsz _isr_ctr_t1,f"); \
-        asm("goto "lbl_name); \
-            asm("bsf _dirty_flags," AUX_STRINGIFY(APP_DIRTY_FLAG_TRAW)); \
-            asm("movlw " AUX_STRINGIFY(PROJ_ISR_CTR_INITER_T1)); \
-            asm("movwf _isr_ctr_t1"); \
-    asm(""lbl_name":");
-#else
 // >= 3 tacts: 3 or 5
 #define PROJ_INLINED_ISR_REPLACEMENT(lbl_name) \
     asm("decfsz _isr_ctr_t0,f"); \
@@ -298,7 +244,7 @@ void isr(void) __at(0x0004)
         asm("movlw " AUX_STRINGIFY(PROJ_ISR_CTR_INITER_T0)); \
         asm("movwf _isr_ctr_t0"); \
     asm(""lbl_name":");
-#endif
+
 
 // >= 5 tacts: 5 or 5+(3 or 8 or 10) == 5 or 8 or 13 or 15 tacts :: debug
 // >= 5 tacts: 5 or 5+(3 or 5) == 5 or 8 or 10 tacts             :: non-debug
@@ -355,10 +301,9 @@ void fast_RunADC_8_rising() {
 
 uint8_t fast_mul_8x8_res_h;
 uint8_t fast_mul_8x8_res_l;
-
-#ifdef PROJ_CONST_THR // ---------------------------------
-
 // multiplies w * PROJ_CONST_THR -> fast_mul_8x8_res_h:fast_mul_8x8_res_l
+//// TODO consider tabled search (with tilted curve at very low power percentage? this requires accurate voltage divider)
+//// optimum voltage seems to be around ~80% even below 1% of nominal power range of a panel: TODO verify again
 void fast_mul_8x8() {
     asm("clrf _fast_mul_8x8_res_h");
     asm("clrf _fast_mul_8x8_res_l");
@@ -427,92 +372,6 @@ void fast_mul_8x8() {
     #endif
         // asm("return"); // auto generated
 }
-
-#else // -------------------------------------------------
-
-uint8_t fast_mul_8x8_input1; // input2 is w
-void fast_mul_8x8() {
-    asm("clrf _fast_mul_8x8_res_h");
-    asm("clrf _fast_mul_8x8_res_l");
-
-    asm("btfss _fast_mul_8x8_input1,7");
-    asm("goto labe_fast_mul_8x8__post7");
-        asm("addwf _fast_mul_8x8_res_l,f");
-        //asm("skipnc"); // redundant for the first multiplied bit
-        //asm("incf _fast_mul_8x8_res_h"); // redundant for the first multiplied bit
-
-        //asm("clrc"); // post 7, pre 6 // redundant for the first multiplied bit
-        asm("rlf _fast_mul_8x8_res_l,f");
-        asm("rlf _fast_mul_8x8_res_h,f");
-    asm("labe_fast_mul_8x8__post7:");
-    //
-    asm("btfss _fast_mul_8x8_input1,6");
-    asm("goto labe_fast_mul_8x8__post6");
-        asm("addwf _fast_mul_8x8_res_l,f");
-        asm("skipnc");
-        asm("incf _fast_mul_8x8_res_h");
-    asm("labe_fast_mul_8x8__post6:");
-            asm("clrc"); // post 6, pre 5
-            asm("rlf _fast_mul_8x8_res_l,f");
-            asm("rlf _fast_mul_8x8_res_h,f");
-    asm("btfss _fast_mul_8x8_input1,5");
-    asm("goto labe_fast_mul_8x8__post5");
-        asm("addwf _fast_mul_8x8_res_l,f");
-        asm("skipnc");
-        asm("incf _fast_mul_8x8_res_h");
-    asm("labe_fast_mul_8x8__post5:");
-            asm("clrc"); // post 5, pre 4
-            asm("rlf _fast_mul_8x8_res_l,f");
-            asm("rlf _fast_mul_8x8_res_h,f");
-    asm("btfss _fast_mul_8x8_input1,4");
-    asm("goto labe_fast_mul_8x8__post4");
-        asm("addwf _fast_mul_8x8_res_l,f");
-        asm("skipnc");
-        asm("incf _fast_mul_8x8_res_h");
-    asm("labe_fast_mul_8x8__post4:");
-            asm("clrc"); // post 4, pre 3
-            asm("rlf _fast_mul_8x8_res_l,f");
-            asm("rlf _fast_mul_8x8_res_h,f");
-    asm("btfss _fast_mul_8x8_input1,3");
-    asm("goto labe_fast_mul_8x8__post3");
-        asm("addwf _fast_mul_8x8_res_l,f");
-        asm("skipnc");
-        asm("incf _fast_mul_8x8_res_h");
-    asm("labe_fast_mul_8x8__post3:");
-            asm("clrc"); // post 3, pre 2
-            asm("rlf _fast_mul_8x8_res_l,f");
-            asm("rlf _fast_mul_8x8_res_h,f");
-    asm("btfss _fast_mul_8x8_input1,2");
-    asm("goto labe_fast_mul_8x8__post2");
-        asm("addwf _fast_mul_8x8_res_l,f");
-        asm("skipnc");
-        asm("incf _fast_mul_8x8_res_h");
-    asm("labe_fast_mul_8x8__post2:");
-            asm("clrc"); // post 2, pre 1
-            asm("rlf _fast_mul_8x8_res_l,f");
-            asm("rlf _fast_mul_8x8_res_h,f");
-    asm("btfss _fast_mul_8x8_input1,1");
-    asm("goto labe_fast_mul_8x8__post1");
-        asm("addwf _fast_mul_8x8_res_l,f");
-        asm("skipnc");
-        asm("incf _fast_mul_8x8_res_h");
-    asm("labe_fast_mul_8x8__post1:");
-            asm("clrc"); // post 1, pre 0
-            asm("rlf _fast_mul_8x8_res_l,f");
-            asm("rlf _fast_mul_8x8_res_h,f");
-    asm("btfss _fast_mul_8x8_input1,0");
-    asm("return"); // asm("goto labe_fast_mul_8x8__post0");
-        asm("addwf _fast_mul_8x8_res_l,f");
-        asm("skipnc");
-        asm("incf _fast_mul_8x8_res_h");
-    asm("labe_fast_mul_8x8__post0:");
-    // asm("return"); // auto generated
-}
-#endif // ------------------------------------------------
-
-#ifndef PROJ_CONST_THR
-uint8_t g_thr = PROJ_THR_START;
-#endif
 
 uint8_t last_raw_adc_val = 0;
 uint8_t pending_raw_adc_val;
@@ -992,40 +851,40 @@ void apply_pwr_level() __at(0x0040)
 }
 
 void main() {
-    TRISIO = 0x1C; // outputs (0s): GPIO0, GPIO1, GPIO5
-    ANSEL = (PROJ_ADC_ADCS << 4) | 0x04; // set conversion time;; enable AN2
-    GPIO = 0;
-    OSCCAL = 0;
+    TRISIO = ((1 << PROJ_BIT_NUM_OUT_OUT)
+            | (1 << PROJ_BIT_NUM_OUT_CAP)
+            | (1 << PROJ_BIT_NUM_OUT_DEBUG)
+            ) ^ 0x3F
+            ;
+    ANSEL = (PROJ_ADC_ADCS << 4) | (1 << PROJ_ADC_CH_VOL); // set conversion time and ADC channel
+
+    asm("bcf 3,5"); // ensure bank0 selected
+    asm("clrf _gp_shadow");
+    asm("bsf _gp_shadow," AUX_STRINGIFY(PROJ_BIT_NUM_OUT_CAP)); // ensure attaching capacitor (will be applied by PROJ_ASSIGN_OUT_0)
+    PROJ_ASSIGN_OUT_0 // ensure detaching load
 
     CMCON = 0x07;
     WPU = 0xFF; // all possible pullups
     OSCCAL = __osccal_val();
 
-    gp_shadow = GPIObits;
-
     app_flags = 0;
     dirty_flags = 0;
-    app_btn_timer = 0;
-
-    app_debug_blinks = 0;
     app_rise_counter = PROJ_PWR_RISE_DELAY;
 
-    OPTION_REG = (PROJ_TMR_PRESCALE); // (!nGPPU - enable pullups), ps = b100 (prescale 32)
+    OPTION_REG = (PROJ_TMR_PRESCALE); // (!nGPPU - enable pullups), prescaler setup
     TMR0 = 0;
     INTCON = 0xA0; // GIE + T0IE: enable interrupts and T0 timer
 
     asm("bcf 3,5"); // ensure bank0 selected
     PROJ_ADC_SETUP__WHEN_BANK0()
-
-    asm("bsf _gp_shadow," AUX_STRINGIFY(PROJ_BIT_NUM_OUT_CAP));
-    asm("movf _gp_shadow,w");
-    asm("movwf 5"); // ensure attaching capacitor, we'll be dropping out to BOD here at start and at insufficient power cases
     AUX_DELAY_40
     PROJ_ADC_START()
     PROJ_ADC_WAIT("labe_preinit_adc_min_voltage")
     asm("movf 30,w"); // w = ADRESH
     asm("movwf _thr_min"); // thr_min = w (ADC result)
 
+    // TODO revise thr_min? in case of having very high startup current (connecting to high-saturated solar; which would drive thr_min too high)
+    // this is probably not necessary with 'PWRTE = OFF' as startup time is very small. TODO calculate/verify
     if((thr_min + (3 + PROJ_THR_DIFF_INSTANT_DROPOUT)) > thr_min) { // +1% +dropout. ensure no overflow
         // must be no overflow - otherwise it's mistake in scheme or ADC failure
         thr_min += (3 + PROJ_THR_DIFF_INSTANT_DROPOUT);
@@ -1053,15 +912,9 @@ void main() {
     }
     {
         //asm("bcf 3,5"); // ensure bank0 selected
-#ifdef PROJ_CONST_THR
         asm("movf _last_raw_adc_val,w");
         asm("fcall _fast_mul_8x8");
-#else
-        asm("movf _last_raw_adc_val,w"); // TODO input1 can be union with last_raw_adc_val to save 2 commands
-        asm("movwf _fast_mul_8x8_input1");
-        asm("movf _g_thr,w");
-        asm("fcall _fast_mul_8x8");
-#endif
+
         asm("movf _fast_mul_8x8_res_h,w");
         asm("movwf _thr_hi"); // thr_hi = last_raw_adc_val * g_thr / 256
         //
@@ -1185,9 +1038,9 @@ void main() {
                 asm("goto labe_main__cycle");
             asm("labe_main__nop1_non_dirty:");
 
-
-            asm("btfss _dirty_flags," AUX_STRINGIFY(APP_DIRTY_FLAG_THRS));
-            asm("goto labe_main__thr_non_dirty");
+            // last flag checked - checking is redundant in this case
+            //asm("btfss _dirty_flags," AUX_STRINGIFY(APP_DIRTY_FLAG_THRS));
+            //asm("goto labe_main__cycle"); // asm("goto labe_main__thr_non_dirty");
                 asm("bcf _dirty_flags," AUX_STRINGIFY(APP_DIRTY_FLAG_THRS));
                 //
                 asm("movf _pending_raw_adc_val,w"); // TODO input1 can be union with last_raw_adc_val to save 2 commands
@@ -1198,18 +1051,11 @@ void main() {
                 //
                 asm("movlw " AUX_STRINGIFY(PROJ_PWR_RISE_DELAY)); // w = PROJ_PWR_RISE_DELAY
                 asm("movwf _app_rise_counter"); // app_rise_counter = PROJ_PWR_RISE_DELAY
-#ifdef PROJ_CONST_THR
-                asm("movf _pending_raw_adc_val,w");
-                asm("movwf _last_raw_adc_val");
-                asm("fcall _fast_mul_8x8");
-#else
-                asm("movf _pending_raw_adc_val,w");
-                asm("movwf _last_raw_adc_val");
-                asm("movwf _fast_mul_8x8_input1");
 
-                asm("movf _g_thr,w");
+                asm("movf _pending_raw_adc_val,w");
+                asm("movwf _last_raw_adc_val");
                 asm("fcall _fast_mul_8x8");
-#endif
+
                 asm("movf _fast_mul_8x8_res_h,w");
                 asm("movwf _thr_hi"); // thr_hi = last_raw_adc_val * g_thr / 256
                 //
@@ -1221,82 +1067,7 @@ void main() {
                 asm("subwf _thr_hi,w"); // w = thr_hi - PROJ_THR_DIFF_INSTANT_DROPOUT
                 asm("movwf _thr_lo");
                 asm("goto labe_main__cycle"); // enough delaying work - to cycle start
-            asm("labe_main__thr_non_dirty:");
-
-#ifdef PROJ_DEBUG_BTN
-            asm("btfss _dirty_flags," AUX_STRINGIFY(APP_DIRTY_FLAG_TDEBUG));
-            asm("goto labe_main__tdebug_non_dirty");
-                asm("bcf _dirty_flags," AUX_STRINGIFY(APP_DIRTY_FLAG_TDEBUG));
-                //asm("bsf _dirty_flags," AUX_STRINGIFY(APP_DIRTY_FLAG_NOP1));
-                //asm("bsf _dirty_flags," AUX_STRINGIFY(APP_DIRTY_FLAG_NOP2));
-                //asm("bcf 3,5"); // ensure bank0 selected
-                asm("movlw " AUX_STRINGIFY(PROJ_PWR_RISE_DELAY)); // w = PROJ_PWR_RISE_DELAY
-                asm("movwf _app_rise_counter"); // app_rise_counter = PROJ_PWR_RISE_DELAY
-                //
-                asm("bcf _app_flags," AUX_STRINGIFY(APP_FLAG_TMP_BTN_ON));
-                asm("btfss 5," AUX_STRINGIFY(PROJ_BIT_NUM_IN_BTN)); // GPIObits.PROJ_BIT_IN_BTN
-                asm("bsf _app_flags," AUX_STRINGIFY(APP_FLAG_TMP_BTN_ON)); // app.bits.tmp_btn_on = (0 == GPIObits.PROJ_BIT_IN_BTN);
-
-                asm("clrw");
-                asm("btfsc _app_flags," AUX_STRINGIFY(APP_FLAG_TMP_BTN_ON));
-                asm("addlw 1");
-                asm("btfsc _app_flags," AUX_STRINGIFY(APP_FLAG_LAST_BTN_ON));
-                asm("addlw 255");
-                // now W is zero if APP_FLAG_TMP_BTN_ON==APP_FLAG_LAST_BTN_ON
-                asm("iorlw 0"); // test for zero
-                asm("skipnz");
-                asm("goto labe_main__btn_unchanged");
-                    // last_btn_on = tmp_btn_on
-                    asm("bcf _app_flags," AUX_STRINGIFY(APP_FLAG_LAST_BTN_ON));
-                    asm("btfsc _app_flags," AUX_STRINGIFY(APP_FLAG_TMP_BTN_ON));
-                    asm("bsf _app_flags," AUX_STRINGIFY(APP_FLAG_LAST_BTN_ON));
-                    // app_btn_timer = 0
-                    asm("clrf _app_btn_timer");
-                    asm("goto labe_main__btn_timer_updated");
-                asm("labe_main__btn_unchanged:");
-                asm("movlw " AUX_STRINGIFY(PROJ_BTN_DELAY));
-                asm("subwf _app_btn_timer,w");
-                asm("skipc");
-                asm("incf _app_btn_timer,f"); // increment, if not max
-                //
-                asm("labe_main__btn_timer_updated:");
-                //
-                //
-                asm("btfss _app_flags," AUX_STRINGIFY(APP_FLAG_LAST_BTN_ON));
-                asm("goto labe_main__btn_processed");
-                // if last_btn_on
-                asm("movlw " AUX_STRINGIFY(PROJ_BTN_DELAY - 1));
-                asm("subwf _app_btn_timer,w");
-                asm("skipz");
-                asm("goto labe_main__btn_processed");
-                // if btn_timer == (PROJ_BTN_DELAY-1)
-                // TODO asmify if keep this
-                { // handle btn
-                    g_thr += PROJ_THR_STEP;
-                    if(g_thr > PROJ_THR_MAX) {
-                        g_thr = PROJ_THR_MIN;
-                    }
-                    if(! app_debug_blinks) {
-                        uint8_t tmp = g_thr - PROJ_THR_MIN;
-                        app_debug_blinks = 1;
-                        // instead of heavy division operation
-                        while(tmp) {
-                            tmp -= PROJ_THR_STEP;
-                            ++app_debug_blinks;
-                        }
-                        app_debug_blinks <<= 1;
-                    }
-                }
-                asm("labe_main__btn_processed:");
-
-                if(app_debug_blinks) {
-                    --app_debug_blinks;
-                    gp_shadow.PROJ_BIT_OUT_DEBUG = ! gp_shadow.PROJ_BIT_OUT_DEBUG; // invert led
-                    GPIObits = gp_shadow;
-                }
-            asm("labe_main__tdebug_non_dirty:");
-            asm("bcf 3,5"); // ensure bank0 selected
-#endif
+            //asm("labe_main__thr_non_dirty:");
         asm("goto labe_main__cycle");
 } //
 
