@@ -125,16 +125,23 @@
 
 // version info (3 numbers and letter) is accessible at top program-memory addresses right before OSCCAL (retlw commands)
 #define FW_VER_MAJOR 0
-#define FW_VER_MINOR 4
+#define FW_VER_MINOR 5
 #define FW_VER_THR PROJ_CONST_THR
-#define FW_VER_OPTION 'A' // some letter describing topology/configuration of compiled code. default is 'A'
+#define FW_VER_OPTION 'B' // some letter describing topology/configuration of compiled code. default is 'B'
 /*
     FW_VER_OPTION vaiants:
     - 'A' (0x41) : unregulated output;
-        single output-fet-driving pin is GPIO0;
-        GPIO1 controls mosfet of buffer capacior;
+        GPIO0 - PWM (output-fet-driving pin);
+        GPIO1 - controls mosfet of buffer capacior;
         GPIO2 is ADC input;
+        // next are debug pins which were recommended to stay disconnected:
         GPIO4 - input mode debug pin, GPIO5 - output mode debug pin.
+    - 'B' (0x42) : optionally regulated output; 'B' is extension of 'A' in case debug pins weren't used.
+        GPIO0 - PWM (output-fet-driving pin);
+        GPIO1 - controls mosfet of buffer capacior;
+        GPIO2 is ADC input;
+        GPIO4 - inverted 'limit' input, has internal pullup. pull to gnd when outputting power needs to be suspended;
+        GPIO5 - inverted PWM pin (strict phase matching with non-inverted PWM). can be used to strengthen closing output fet with small extra fet.
 */
 
 
@@ -148,30 +155,32 @@
 #define PROJ_TMR_PRESCALE (0b111) // x256
 
 // pins / topology
-#define PROJ_BIT_NUM_OUT_OUT 0 // GPIO0 : N-channel mosfet (or 'enable' pin on output line) controlling output line, PULLDOWN external resistor
+#if FW_VER_OPTION == 'B'
+#define PROJ_BIT_NUM_OUT_PWM 0 // GPIO0 : N-channel mosfet (or 'enable' pin on output line) controlling output line, PULLDOWN external resistor
 #define PROJ_BIT_NUM_OUT_CAP 1 // GPIO1 : N-channel mosfet controlling power capacitor, PULLUP external resistor 200k
-#define PROJ_BIT_NUM_IN_BTN 4 // GPIO4 (PROJ_BIT_IN_BTN)
-#define PROJ_BIT_NUM_OUT_DEBUG 5 // GPIO5
+#define PROJ_BIT_NUM_IN_INV_LIMIT 4 // GPIO4 - inverted 'limit' input
+#define PROJ_BIT_NUM_OUT_INV_PWM 5 // GPIO5 - inverted PWM pin, strict phase match
 #define PROJ_ADC_CH_VOL 2 // ADC channel - AN2 (GPIO2) : voltage divider for power line - calculate so that it maxes out to chip PSU level (used 3.3 regulator)
+#else
+// TODO different configurations
+#endif
 
-// ADC allows up to 10k resistance, thus for 5vols it's NOT LESS than 0.5ma current for each ADC channel
 #define PROJ_ADC_ADCS 0b010 // conversion time
 
 #define PROJ_THR_DIFF_INSTANT_DROPOUT 6 // thr_hi - adcval >= 'this' ? full power drop
 #define PROJ_PWR_LEVEL_MAX 26
+#define PROJ_PWR_LEVEL_CUT 18 // TODO will be reworked to different approach
 
 #define PROJ_PWR_RISE_DELAY 3 // number of consequent times for ADC checks to trigger single rise in certain cases
 
 GPIObits_t gp_shadow;
 
-uint8_t app_flags;
-#define APP_FLAG_LAST_BTN_ON 0
-#define APP_FLAG_TMP_BTN_ON 1
-
 uint8_t app_rise_counter;
 
-#define PROJ_OUT_FET_PINS_MASK (1 << PROJ_BIT_NUM_OUT_OUT)
-#define PROJ_OUT_FET_PINS_NEG_MASK (~PROJ_OUT_FET_PINS_MASK)
+#define PROJ_OUT_FET_PINS_POS_MASK (1 << PROJ_BIT_NUM_OUT_PWM)
+#define PROJ_OUT_FET_PINS_INV_MASK (1 << PROJ_BIT_NUM_OUT_INV_PWM)
+#define PROJ_OUT_FET_PINS_ALL_MASK (PROJ_OUT_FET_PINS_POS_MASK | PROJ_OUT_FET_PINS_INV_MASK)
+
 
 uint8_t dirty_flags;
 #define APP_DIRTY_FLAG_TRAW 0 // bit numbers. if another 1000ms have passed and requires processing
@@ -187,17 +196,19 @@ uint8_t dirty_flags;
 */
 
 // relies on active bank 0
-#define PROJ_ASSIGN_OUT_1 \
+// TODO unoptimal
+#define PROJ_TRIGGER_PWM_0 \
     asm("movf _gp_shadow,w"); \
-    asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK)); \
+    asm("btfsc _gp_shadow," AUX_STRINGIFY(PROJ_BIT_NUM_OUT_PWM)); \
+    asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK)); \
     asm("movwf 5"); /* assign GPIO */ \
     asm("movwf _gp_shadow"); /* refresh gp_shadow */
-#define PROJ_ASSIGN_OUT_0 \
+#define PROJ_TRIGGER_PWM_1 \
     asm("movf _gp_shadow,w"); \
-    asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK)); \
+    asm("btfss _gp_shadow," AUX_STRINGIFY(PROJ_BIT_NUM_OUT_PWM)); \
+    asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK)); \
     asm("movwf 5"); /* assign GPIO */ \
     asm("movwf _gp_shadow"); /* refresh gp_shadow */
-
 
 // local isr vars
 #define PROJ_ISR_CTR_INITER_T0 16
@@ -217,7 +228,7 @@ void isr(void) __at(0x0004)
     //asm("bcf 3,5"); // select bank 0 - may be not necessary in isr
     // context saved
 
-    PROJ_ASSIGN_OUT_0 // we actually should never get here as we catch upcoming timer interrupt and process manually
+    PROJ_TRIGGER_PWM_0 // we actually should never get here (during cycle) as we catch upcoming timer interrupt and process manually
     // ++64ms
     asm("decfsz _isr_ctr_t0,f"); // --ctr, test
     asm("goto labe_isr_out");
@@ -469,91 +480,88 @@ void apply_pwr_level() __at(0x0040)
     // end table
     // ----- 0
     asm("labe_apply_pwr_level__zero:");
-        PROJ_ASSIGN_OUT_0
+        PROJ_TRIGGER_PWM_0
         asm("return");
+
+    // TODO handle PROJ_BIT_NUM_IN_INV_LIMIT as much as possible
 
     // ----- duration 2
     asm("labe_apply_pwr_level__d2_c1:");
-        asm("movf _gp_shadow,w");
-        asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
+        asm("movf _gp_shadow,w"); // relying on getting here only when current PWM state=0
+        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
         asm("movwf 5"); /* assign GPIO: output = 1 */
-        asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
+        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
         asm("movwf 5"); /* assign GPIO: output = 0 */
-        asm("movwf _gp_shadow"); // refresh gp_shadow
         asm("return");
 
     asm("labe_apply_pwr_level__d2_c2_long:");
-        asm("movf _gp_shadow,w");
-        asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
+        asm("movf _gp_shadow,w"); // relying on getting here only when current PWM state=0
+        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
         asm("movwf 5"); /* assign GPIO: output = 1 */
-        asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
+        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
         asm("movwf 5"); /* assign GPIO: output = 0 */
         AUX_DELAY_10
         // TODO SIZE: can reduce delay and just jump to labe_apply_pwr_level__d2_c1
-        asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
+        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
         asm("movwf 5"); /* assign GPIO: output = 1 */
-        asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
+        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
         asm("movwf 5"); /* assign GPIO: output = 0 */
-        asm("movwf _gp_shadow"); // refresh gp_shadow
         asm("return");
 
     asm("labe_apply_pwr_level__d2_c2_short:");
-        asm("movf _gp_shadow,w");
-        asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
+        asm("movf _gp_shadow,w"); // relying on getting here only when current PWM state=0
+        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
         asm("movwf 5"); /* assign GPIO: output = 1 */
-        asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
+        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
         asm("movwf 5"); /* assign GPIO: output = 0 */
         AUX_DELAY_4
         // TODO SIZE: can reduce delay and just jump to labe_apply_pwr_level__d2_c1
-        asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
+        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
         asm("movwf 5"); /* assign GPIO: output = 1 */
-        asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
+        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
         asm("movwf 5"); /* assign GPIO: output = 0 */
         asm("movwf _gp_shadow"); // refresh gp_shadow
         asm("return");
 
     // ----- duration 3
     asm("labe_apply_pwr_level__d3_c1:");
-        asm("movf _gp_shadow,w");
-        asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
+        asm("movf _gp_shadow,w"); // relying on getting here only when current PWM state=0
+        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
         asm("movwf 5"); /* assign GPIO: output = 1 */
         AUX_DELAY_1
-        asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
+        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
         asm("movwf 5"); /* assign GPIO: output = 0 */
-        asm("movwf _gp_shadow"); // refresh gp_shadow
         asm("return");
 
     // ----- duration 2+3
     asm("labe_apply_pwr_level__d2c1__d3c1:");
-        asm("movf _gp_shadow,w");
-        asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
+        asm("movf _gp_shadow,w"); // relying on getting here only when current PWM state=0
+        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
         asm("movwf 5"); /* assign GPIO: output = 1 */
-        asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
+        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
         asm("movwf 5"); /* assign GPIO: output = 0 */
         AUX_DELAY_7 // distribute load more evenly
-        asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
+        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
         asm("movwf 5"); /* assign GPIO: output = 1 */
-        asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
+        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
         AUX_DELAY_1
         asm("movwf 5"); /* assign GPIO: output = 0 */
-        asm("movwf _gp_shadow");
         asm("return");
 
     // ----- duration 3+3
     asm("labe_apply_pwr_level__d3c1__d3c1:");
-        asm("movf _gp_shadow,w");
-        asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
+        asm("movf _gp_shadow,w"); // relying on getting here only when current PWM state=0
+        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
         asm("movwf 5"); /* assign GPIO: output = 1 */
         AUX_DELAY_1
-        asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
+        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
         asm("movwf 5"); /* assign GPIO: output = 0 */
         AUX_DELAY_7 // distribute load more evenly
-        asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
+        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
         asm("movwf 5"); /* assign GPIO: output = 1 */
-        asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
+        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
         AUX_DELAY_1
         asm("movwf 5"); /* assign GPIO: output = 0 */
-        asm("movwf _gp_shadow");
         asm("return");
 
     asm("labe_apply_pwr_level__d3_c2:");
@@ -599,218 +607,209 @@ void apply_pwr_level() __at(0x0040)
     // ----- generic 3
     asm("labe_apply_pwr_level__d3_cycle_preinit:");
     asm("movwf _tmp_ctr");
-    asm("movf _gp_shadow,w");
+    asm("movf _gp_shadow,w"); // relying on getting here only when current PWM state=0
     asm("labe_apply_pwr_level__d3_cycle:");
-        asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
+        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
         asm("movwf 5"); /* assign GPIO: output = 1 */
             AUX_DELAY_1
-        asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
+        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
         asm("movwf 5"); /* assign GPIO: output = 0 */
         asm("decfsz _tmp_ctr,f");
         asm("goto labe_apply_pwr_level__d3_cycle");
             // last iteration - after cycle, to minimize further delay
-            asm("movwf _gp_shadow"); // update gp_shadow earlier... by same reason
-            asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
+            asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
             asm("movwf 5"); /* assign GPIO: output = 1 */
                 AUX_DELAY_1
-            asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
+            asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
             asm("movwf 5"); /* assign GPIO: output = 0 */
             asm("return");
 
     asm("labe_apply_pwr_level__d4_c18:");
     asm("movlw 17");
     asm("movwf _tmp_ctr");
-    asm("movf _gp_shadow,w");
+    asm("movf _gp_shadow,w"); // relying on getting here only when current PWM state=0
     // ----- generic 4
     asm("labe_apply_pwr_level__d4_cycle:");
-        asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
+        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
         asm("movwf 5"); /* assign GPIO: output = 1 */
             AUX_DELAY_2
-        asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
+        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
         asm("movwf 5"); /* assign GPIO: output = 0 */
         asm("decfsz _tmp_ctr,f");
         asm("goto labe_apply_pwr_level__d4_cycle");
             // last iteration - after cycle, to minimize further delay
-            asm("movwf _gp_shadow"); // update gp_shadow earlier... by same reason
-            asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
+            asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
             asm("movwf 5"); /* assign GPIO: output = 1 */
                 AUX_DELAY_2
             // TODO SIZE: can reduce delay and just jump to such common quit
-            asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
+            asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
             asm("movwf 5"); /* assign GPIO: output = 0 */
             asm("return");
 
     asm("labe_apply_pwr_level__d5_c15:");
     asm("movlw 14");
     asm("movwf _tmp_ctr");
-    asm("movf _gp_shadow,w");
+    asm("movf _gp_shadow,w"); // relying on getting here only when current PWM state=0
     // ----- generic 5
     asm("labe_apply_pwr_level__d5_cycle:");
-        asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
+        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
         asm("movwf 5"); /* assign GPIO: output = 1 */
             AUX_DELAY_3
-        asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
+        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
         asm("movwf 5"); /* assign GPIO: output = 0 */
         asm("decfsz _tmp_ctr,f");
         asm("goto labe_apply_pwr_level__d5_cycle");
             // last iteration - after cycle, to minimize further delay
-            asm("movwf _gp_shadow"); // update gp_shadow earlier... by same reason
-            asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
+            asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
             asm("movwf 5"); /* assign GPIO: output = 1 */
                 AUX_DELAY_3
             // TODO SIZE: can reduce delay and just jump to such common quit
-            asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
+            asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
             asm("movwf 5"); /* assign GPIO: output = 0 */
             asm("return");
 
     asm("labe_apply_pwr_level__d6_c12:");
     asm("movlw 11");
     asm("movwf _tmp_ctr");
-    asm("movf _gp_shadow,w");
+    asm("movf _gp_shadow,w"); // relying on getting here only when current PWM state=0
     // ----- generic 6
     asm("labe_apply_pwr_level__d6_cycle:");
-        asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
+        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
         asm("movwf 5"); /* assign GPIO: output = 1 */
             AUX_DELAY_4
-        asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
+        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
         asm("movwf 5"); /* assign GPIO: output = 0 */
             AUX_DELAY_1
         asm("decfsz _tmp_ctr,f");
         asm("goto labe_apply_pwr_level__d6_cycle");
             // last iteration - after cycle, to minimize further delay
-            asm("movwf _gp_shadow"); // update gp_shadow earlier... by same reason
-            asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
+            asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
             asm("movwf 5"); /* assign GPIO: output = 1 */
                 AUX_DELAY_4
             // TODO SIZE: can reduce delay and just jump to such common quit
-            asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
+            asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
             asm("movwf 5"); /* assign GPIO: output = 0 */
             asm("return");
 
     asm("labe_apply_pwr_level__d7_c10:");
     asm("movlw 9");
     asm("movwf _tmp_ctr");
-    asm("movf _gp_shadow,w");
+    asm("movf _gp_shadow,w"); // relying on getting here only when current PWM state=0
     // ----- generic 7
     asm("labe_apply_pwr_level__d7_cycle:");
-        asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
+        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
         asm("movwf 5"); /* assign GPIO: output = 1 */
             AUX_DELAY_5
-        asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
+        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
         asm("movwf 5"); /* assign GPIO: output = 0 */
             AUX_DELAY_2
         asm("decfsz _tmp_ctr,f");
         asm("goto labe_apply_pwr_level__d7_cycle");
             // last iteration - after cycle, to minimize further delay
-            asm("movwf _gp_shadow"); // update gp_shadow earlier... by same reason
-            asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
+            asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
             asm("movwf 5"); /* assign GPIO: output = 1 */
                 AUX_DELAY_5
             // TODO SIZE: can reduce delay and just jump to such common quit
-            asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
+            asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
             asm("movwf 5"); /* assign GPIO: output = 0 */
             asm("return");
 
     asm("labe_apply_pwr_level__d9_c8:");
     asm("movlw 7");
     asm("movwf _tmp_ctr");
-    asm("movf _gp_shadow,w");
+    asm("movf _gp_shadow,w"); // relying on getting here only when current PWM state=0
     // ----- generic 9
     asm("labe_apply_pwr_level__d9_cycle:");
-        asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
+        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
         asm("movwf 5"); /* assign GPIO: output = 1 */
             AUX_DELAY_7
-        asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
+        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
         asm("movwf 5"); /* assign GPIO: output = 0 */
             AUX_DELAY_4
         asm("decfsz _tmp_ctr,f");
         asm("goto labe_apply_pwr_level__d9_cycle");
             // last iteration - after cycle, to minimize further delay
-            asm("movwf _gp_shadow"); // update gp_shadow earlier... by same reason
-            asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
+            asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
             asm("movwf 5"); /* assign GPIO: output = 1 */
                 AUX_DELAY_7
             // TODO SIZE: can reduce delay and just jump to such common quit
-            asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
+            asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
             asm("movwf 5"); /* assign GPIO: output = 0 */
             asm("return");
 
     asm("labe_apply_pwr_level__d12_c6:");
     asm("movlw 5");
     asm("movwf _tmp_ctr");
-    asm("movf _gp_shadow,w");
+    asm("movf _gp_shadow,w"); // relying on getting here only when current PWM state=0
     // ----- generic 12
     asm("labe_apply_pwr_level__d12_cycle:");
-        asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
+        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
         asm("movwf 5"); /* assign GPIO: output = 1 */
             AUX_DELAY_10
-        asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
+        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
         asm("movwf 5"); /* assign GPIO: output = 0 */
             AUX_DELAY_7
         asm("decfsz _tmp_ctr,f");
         asm("goto labe_apply_pwr_level__d12_cycle");
             // last iteration - after cycle, to minimize further delay
-            asm("movwf _gp_shadow"); // update gp_shadow earlier... by same reason
-            asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
+            asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
             asm("movwf 5"); /* assign GPIO: output = 1 */
                 AUX_DELAY_10
             // TODO SIZE: can reduce delay and just jump to such common quit
-            asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
+            asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
             asm("movwf 5"); /* assign GPIO: output = 0 */
             asm("return");
 
     asm("labe_apply_pwr_level__d15_c5:");
     asm("movlw 4");
     asm("movwf _tmp_ctr");
-    asm("movf _gp_shadow,w");
+    asm("movf _gp_shadow,w"); // relying on getting here only when current PWM state=0
     // ----- generic 15
     asm("labe_apply_pwr_level__d15_cycle:");
-        asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
+        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
         asm("movwf 5"); /* assign GPIO: output = 1 */
             AUX_DELAY_13
-        asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
+        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
         asm("movwf 5"); /* assign GPIO: output = 0 */
             AUX_DELAY_10
         asm("decfsz _tmp_ctr,f");
         asm("goto labe_apply_pwr_level__d15_cycle");
             // last iteration - after cycle, to minimize further delay
-            asm("movwf _gp_shadow"); // update gp_shadow earlier... by same reason
-            asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
+            asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
             asm("movwf 5"); /* assign GPIO: output = 1 */
                 AUX_DELAY_13
             // TODO SIZE: can reduce delay and just jump to such common quit
-            asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
+            asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
             asm("movwf 5"); /* assign GPIO: output = 0 */
             asm("return");
 
     asm("labe_apply_pwr_level__d18_c4:");
     asm("movlw 3");
     asm("movwf _tmp_ctr");
-    asm("movf _gp_shadow,w");
+    asm("movf _gp_shadow,w"); // relying on getting here only when current PWM state=0
     // ----- generic 18
     asm("labe_apply_pwr_level__d18_cycle:");
-        asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
+        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
         asm("movwf 5"); /* assign GPIO: output = 1 */
             AUX_DELAY_16
-        asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
+        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
         asm("movwf 5"); /* assign GPIO: output = 0 */
             AUX_DELAY_13
         asm("decfsz _tmp_ctr,f");
         asm("goto labe_apply_pwr_level__d18_cycle");
             // last iteration - after cycle, to minimize further delay
-            asm("movwf _gp_shadow"); // update gp_shadow earlier... by same reason
-            asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
+            asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
             asm("movwf 5"); /* assign GPIO: output = 1 */
                 AUX_DELAY_16
             // TODO SIZE: can reduce delay and just jump to such common quit
-            asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
+            asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
             asm("movwf 5"); /* assign GPIO: output = 0 */
             asm("return");
 
 
     // special handler
     asm("labe_apply_pwr_level__special:");
-    asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
+    asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
     asm("movwf 5"); /* assign GPIO: output = 0 */
         AUX_DELAY_17
     asm("goto labe_apply_pwr_level__pre_max_level");
@@ -821,53 +820,51 @@ void apply_pwr_level() __at(0x0040)
     asm("movwf _tmp_ctr");
     asm("movf _gp_shadow,w");
     //
-    asm("btfsc 5," AUX_STRINGIFY(PROJ_BIT_NUM_OUT_OUT)); // check if we came here from pwr MAX - then pre-apply 0
+    asm("btfsc 5," AUX_STRINGIFY(PROJ_BIT_NUM_OUT_PWM)); // check if we came here from pwr MAX - then pre-apply 0
     asm("goto labe_apply_pwr_level__special");
     //
     // ----- generic 21
     asm("labe_apply_pwr_level__pre_max_level:");
     asm("labe_apply_pwr_level__d21_cycle:");
-        asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
+        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
         asm("movwf 5"); /* assign GPIO: output = 1 */
             AUX_DELAY_19
-        asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
+        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
         asm("movwf 5"); /* assign GPIO: output = 0 */
             AUX_DELAY_16
         asm("decfsz _tmp_ctr,f");
         asm("goto labe_apply_pwr_level__d21_cycle");
             // last iteration - after cycle, to minimize further delay
-            asm("movwf _gp_shadow"); // update gp_shadow earlier... by same reason
-            asm("iorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_MASK));
+            asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
             asm("movwf 5"); /* assign GPIO: output = 1 */
                 AUX_DELAY_19
             // TODO SIZE: can reduce delay and just jump to such common quit
-            asm("andlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_NEG_MASK));
+            asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
             asm("movwf 5"); /* assign GPIO: output = 0 */
             asm("return");
 
     asm("labe_apply_pwr_level__max:");
-        PROJ_ASSIGN_OUT_1
+        PROJ_TRIGGER_PWM_1
         asm("return");
 }
 
 void main() {
-    TRISIO = ((1 << PROJ_BIT_NUM_OUT_OUT)
+    TRISIO = ((1 << PROJ_BIT_NUM_OUT_PWM)
             | (1 << PROJ_BIT_NUM_OUT_CAP)
-            | (1 << PROJ_BIT_NUM_OUT_DEBUG)
+            | (1 << PROJ_BIT_NUM_OUT_INV_PWM)
             ) ^ 0x3F
             ;
     ANSEL = (PROJ_ADC_ADCS << 4) | (1 << PROJ_ADC_CH_VOL); // set conversion time and ADC channel
 
     asm("bcf 3,5"); // ensure bank0 selected
-    asm("clrf _gp_shadow");
-    asm("bsf _gp_shadow," AUX_STRINGIFY(PROJ_BIT_NUM_OUT_CAP)); // ensure attaching capacitor (will be applied by PROJ_ASSIGN_OUT_0)
-    PROJ_ASSIGN_OUT_0 // ensure detaching load
+    asm("movlw " AUX_STRINGIFY((1 << PROJ_BIT_NUM_OUT_CAP) | (1 << PROJ_BIT_NUM_OUT_INV_PWM)));
+    asm("movwf 5"); // initial assignment
+    asm("movwf _gp_shadow");
 
     CMCON = 0x07;
     WPU = 0xFF; // all possible pullups
     OSCCAL = __osccal_val();
 
-    app_flags = 0;
     dirty_flags = 0;
     app_rise_counter = PROJ_PWR_RISE_DELAY;
 
@@ -897,7 +894,7 @@ void main() {
     asm("goto labe_main__preinit_raw_adc");
     asm("clrf _dirty_flags");
     {
-        PROJ_ASSIGN_OUT_0
+        PROJ_TRIGGER_PWM_0
         asm("bcf _gp_shadow," AUX_STRINGIFY(PROJ_BIT_NUM_OUT_CAP));
         asm("movf _gp_shadow,w");
         asm("movwf 5"); // detach cap
@@ -932,8 +929,23 @@ void main() {
         // asm("bcf 3,5"); // ensure bank0 selected
         PROJ_ADC_START()
         PROJ_CATCH_AVOID_ISR("labe_main__intercept_isr", 2) // 2 => at least 512 tacts until isr
+        // check for limit
+        asm("btfsc 5," AUX_STRINGIFY(PROJ_BIT_NUM_IN_INV_LIMIT));
+        asm("goto labe_main__cycle_await_adc");
+        // limit reached - handle it
+        PROJ_ADC_WAIT("labe_main__cycle_dummy_await_adc") // adc awaiting to ensure correct functioning. TODO can be optimized out depending on timings
+        asm("movlw " AUX_STRINGIFY(PROJ_PWR_LEVEL_CUT)); // w == cut_level
+        asm("subwf _pwr_level,w"); // w(cut_level) = pwr_level - w
+        asm("skipc"); // c == no borrow
+        asm("goto labe_main__cycle_pre_check_flags"); // pwr_level < cut_level : just pass to flags processing
+            // pwr_level >= cut_level
+            PROJ_TRIGGER_PWM_0 // ensure output is switched to 0 in case we came here from max pwr level
+            asm("movlw " AUX_STRINGIFY(PROJ_PWR_LEVEL_CUT)); // w == cut_level
+            asm("movwf _pwr_level"); // cut
+            asm("goto labe_main__cycle_pre_check_flags");
+
         // main part:
-            PROJ_ADC_WAIT("labe_main__adc") // TODO if ADC time selection changes to 4us - explicit awaiting can be omitted in this place
+            PROJ_ADC_WAIT("labe_main__cycle_await_adc") // TODO if ADC time selection changes to 4us - explicit awaiting can be omitted in this place
 #define VAR_ADCVAL "30" // avoid copying ADC result to minimize executed code
 //            asm("movf 30,w"); // w = ADRESH
 //            asm("movwf _tmp_ctr"); // tmp_ctr = w (ADC result)
@@ -990,6 +1002,7 @@ void main() {
         // main part done
 
 
+        asm("labe_main__cycle_pre_check_flags:");
         // asm("bcf 3,5"); // ensure bank0 selected
         asm("movf _dirty_flags,f"); // test
         asm("skipnz");
@@ -999,7 +1012,8 @@ void main() {
             asm("btfss _dirty_flags," AUX_STRINGIFY(APP_DIRTY_FLAG_TRAW));
             asm("goto labe_main__traw_non_dirty");
                 // do these steps first...
-                PROJ_ASSIGN_OUT_0 // ensure load is detached first
+                // TODO optimize this flow manually
+                PROJ_TRIGGER_PWM_0 // ensure load is detached first
                 asm("bcf _gp_shadow," AUX_STRINGIFY(PROJ_BIT_NUM_OUT_CAP));
                 asm("movf _gp_shadow,w");
                 asm("movwf 5"); // detach cap, give some time to establish raw voltage
