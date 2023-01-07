@@ -12,8 +12,8 @@
 ### Repository structure:
 - pic12f675/main.c - MCU source code with description and documentation;
 - pic12f675/Basic_Scheme.png - schematic of solution with some description (drawn by hand, electricity may drop-off any time anyway).
-- pic12f675/compiled/... - firmware images (current version - 0.3.THR.OPTION).
-- pic12f675/compiled/pic12f675_lp_mppt__0_3_198_A.hex - latest tested version.
+- pic12f675/compiled/... - firmware images (current version - 0.6.THR.OPTION).
+- pic12f675/compiled/pic12f675_lp_mppt__0_6_198_B.hex - latest tested version.
 
 ### Versioning important note:
 Version format is major.minor.THR.OPTION where:
@@ -25,9 +25,16 @@ Version format is major.minor.THR.OPTION where:
 
 
 ### Releases
-#### Release 0.3.x.A
-- added input diode Vf consideration (since now several .THR options are built for optimal choice) - significantly reduces pulsations, improves efficiency (avoids solar power generation loss in MPP overshoot).
-- excluded debug/configure code part - reduces pulsations;
-- used constant multiplication (hardcoded autogen algorithm) - reduces pulsations;
+#### Release 0.6.x.B [07 jan 2023] - extended functionality - upgraded topology letter (A -> B)
+- added output limiting pin (GPIO4; pull to gnd when outputting power needs to be suspended; has internal pullup resistor);
+- added inverted PWM output (GPIO5; strict phase matching with non-inverted PWM) - might be used in some cases (e.g. when some output mosfet driver is involved);
+- compatible with 'A' versions if GPIO4 and GPIO5 weren't used (as it was recommended) - see 'FW_VER_OPTION vaiants' updated;
+- this release has been more or less tested in various scenarious involving initial and second assembled prototype boards;
+- plenty of testing has been done during last ~1 month, related info/assumptions are to be updated sometime later ('Releases' section will get a new tag as well).
 
-#### Release 0.1.0.A - first version
+#### Release 0.3.x.A [07 dec 2022]
+- added input diode Vf consideration (since now several .THR options are built for optimal choice) - significantly reduces pulsations, improves efficiency (avoids solar power generation loss in MPP overshoot);
+- excluded debug/configure code part - reduces pulsations;
+- used constant multiplication (hardcoded autogen algorithm) - reduces pulsations.
+
+#### Release 0.1.0.A [27 nov 2022] - first version
