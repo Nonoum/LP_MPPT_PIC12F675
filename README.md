@@ -1,6 +1,6 @@
 ## LOW POWER-oriented LOW-COST MPPT controller based on PIC12F675 MCU with minimal external components.
 
-### Apparently for the first time in my life I'm relasing a project prematurely, as I believe I'm forced to do so due to latest events in my country, in hope that this project is mature enough and can already be used in some areas to help my people.
+### Apparently for the first time in my life I'm relasing a project prematurely (version 0.1.0.A), as I believe I'm forced to do so due to latest events in my country, in hope that this project is mature enough and can already be used in some areas to help my people.
 
 #### Detailed description and documentation is in top of "pic12f675/main.c" file. Ukrainian version of description will be available on Ukrainian internet resources.
 
@@ -12,8 +12,9 @@
 ### Repository structure:
 - pic12f675/main.c - MCU source code with description and documentation;
 - pic12f675/Basic_Scheme.png - schematic of solution with some description (drawn by hand, electricity may drop-off any time anyway).
-- pic12f675/compiled/... - firmware images (current version - 0.6.THR.OPTION).
-- pic12f675/compiled/pic12f675_lp_mppt__0_6_198_B.hex - latest tested version.
+- pic12f675/compiled/... - firmware images (current version - 0.8.THR.OPTION).
+- pic12f675/compiled/pic12f675_lp_mppt__0_8_198_B.hex - latest tested version.
+- pic12f675/compiled/pic12f675_lp_mppt__0_8_198_F.hex - latest tested version.
 
 ### Versioning important note:
 Version format is major.minor.THR.OPTION where:
@@ -25,6 +26,18 @@ Version format is major.minor.THR.OPTION where:
 
 
 ### Releases
+In development: big update for PWM modes.
+
+#### Release 0.8.x.B, 0.8.x.F [22 jan 2023] - significantly reworked cycle and balancing, introduced one additional topology
+- added topology 'F' (used in second assembled prototype) with two PWM-driving pins (both not inverted, 100% synced), more PCB-frindly pinout;
+- reworked balancing logic - will work well with PWM updates, still looks better as is (middle part of PWM modes is especially poorly balanced yet);
+- new balancer assumes no significant noise on ADC line (not likely to ever be an issue in any circumstances);
+- improved limiting logic/accuracy (still being improved, currently there are significant output spikes at higher power range);
+- significantly reduced cycle delays (less response time - faster balancing);
+- MPP voltage threshold is slightly lowered due to changed logic (by 1/256), might be compensated internally in future;
+- *dual PWM pin in topology 'F' is rather for better temperature stability on chip for stronger mosfets, even strong (6 amps rated) external Low-Side mosfet driver TC4420CPA has made no impact on efficiency whatsoever, so no insufficient current for driving fets was observed in tested conditions (IRLZ34N fet, IRL2203 fet);
+- *overall measured efficiency looks good and matches appropriate charts of buck converters with such topology (with diode), on 18v panel with output at 5v efficiency was from 78% (below 1 watt output) raising to 86% (at around 2 watts output) which is an expected characteristic (comparing to data of XL4015 in it's datasheet), with output at 12v characteristic is similar but higher and reached around 92.5% efficiency at 2 watts output (core components of used prototype here are ILR2203, IRLZ34N (pwm), SR840 diode, CDRH127/LDNP-330MC - 33uH inductor).
+
 #### Release 0.6.x.B [07 jan 2023] - extended functionality - upgraded topology letter (A -> B)
 - added output limiting pin (GPIO4; pull to gnd when outputting power needs to be suspended; has internal pullup resistor);
 - added inverted PWM output (GPIO5; strict phase matching with non-inverted PWM) - might be used in some cases (e.g. when some output mosfet driver is involved);
