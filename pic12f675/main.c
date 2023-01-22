@@ -125,9 +125,9 @@
 
 // version info (3 numbers and letter) is accessible at top program-memory addresses right before OSCCAL (retlw commands)
 #define FW_VER_MAJOR 0
-#define FW_VER_MINOR 6
+#define FW_VER_MINOR 7
 #define FW_VER_THR PROJ_CONST_THR
-#define FW_VER_OPTION 'B' // some letter describing topology/configuration of compiled code. default is 'B'
+#define FW_VER_OPTION 'F' // some letter describing topology/configuration of compiled code. default is 'F'
 /*
     FW_VER_OPTION vaiants:
     - 'A' (0x41) : unregulated output;
@@ -158,20 +158,27 @@
 
 // pins / topology
 #if FW_VER_OPTION == 'B'
-#define PROJ_BIT_NUM_OUT_PWM 0 // GPIO0 : N-channel mosfet (or 'enable' pin on output line) controlling output line, PULLDOWN external resistor
+#define PROJ_BIT_NUM_OUT_PWM_0 0 // GPIO0 : N-channel mosfet (or 'enable' pin on output line) controlling output line, PULLDOWN external resistor
+#define PROJ_BIT_NUM_OUT_PWM_1 PROJ_BIT_NUM_OUT_PWM_0
 #define PROJ_BIT_NUM_OUT_CAP 1 // GPIO1 : N-channel mosfet controlling power capacitor, PULLUP external resistor 200k
 #define PROJ_BIT_NUM_IN_INV_LIMIT 4 // GPIO4 - inverted 'limit' input
 #define PROJ_BIT_NUM_OUT_INV_PWM 5 // GPIO5 - inverted PWM pin, strict phase match
 #define PROJ_ADC_CH_VOL 2 // ADC channel - AN2 (GPIO2) : voltage divider for power line - calculate so that it maxes out to chip PSU level (used 3.3 regulator)
+#elif FW_VER_OPTION == 'F'
+#define PROJ_BIT_NUM_OUT_PWM_0 1 // GPIO1 : N-channel mosfet (or 'enable' pin on output line) controlling output line, PULLDOWN external resistor
+#define PROJ_BIT_NUM_OUT_PWM_1 2 // GPIO2 : N-channel mosfet (or 'enable' pin on output line) controlling output line, PULLDOWN external resistor
+#define PROJ_BIT_NUM_OUT_CAP 0 // GPIO0 : N-channel mosfet controlling power capacitor, PULLUP external resistor 200k
+#define PROJ_BIT_NUM_IN_INV_LIMIT 5 // GPIO5 - inverted 'limit' input
+#define PROJ_ADC_CH_VOL 3 // ADC channel - AN3 (GPIO4) : voltage divider for power line - calculate so that it maxes out to chip PSU level (used 3.3 regulator)
 #else
 // TODO different configurations
 #endif
 
-#define PROJ_ADC_ADCS 0b010 // conversion time
+#define PROJ_ADC_ADCS 0b010 // conversion time; 32 Tosc (8 tacts)
 
 #define PROJ_THR_DIFF_INSTANT_DROPOUT 6 // thr_hi - adcval >= 'this' ? full power drop
-#define PROJ_PWR_LEVEL_MAX 26
-#define PROJ_PWR_LEVEL_CUT 18 // TODO will be reworked to different approach
+#define PROJ_PWR_LEVEL_MAX 27
+#define PROJ_PWR_LEVEL_CUT 19 // TODO will be reworked to different approach
 
 #define PROJ_PWR_RISE_DELAY 3 // number of consequent times for ADC checks to trigger single rise in certain cases
 
@@ -179,9 +186,17 @@ GPIObits_t gp_shadow;
 
 uint8_t app_rise_counter;
 
-#define PROJ_OUT_FET_PINS_POS_MASK (1 << PROJ_BIT_NUM_OUT_PWM)
-#define PROJ_OUT_FET_PINS_INV_MASK (1 << PROJ_BIT_NUM_OUT_INV_PWM)
+#define PROJ_OUT_FET_PINS_POS_MASK ((1 << PROJ_BIT_NUM_OUT_PWM_0) | (1 << PROJ_BIT_NUM_OUT_PWM_1))
+#ifdef PROJ_BIT_NUM_OUT_INV_PWM
+    #define PROJ_OUT_FET_PINS_INV_MASK (1 << PROJ_BIT_NUM_OUT_INV_PWM)
+#else
+    #define PROJ_OUT_FET_PINS_INV_MASK 0
+#endif
 #define PROJ_OUT_FET_PINS_ALL_MASK (PROJ_OUT_FET_PINS_POS_MASK | PROJ_OUT_FET_PINS_INV_MASK)
+
+#define PROJ_STATE_GPIO_CAPON_PWMON ((1 << PROJ_BIT_NUM_OUT_CAP) | PROJ_OUT_FET_PINS_POS_MASK)
+#define PROJ_STATE_GPIO_CAPON_PWMOFF ((1 << PROJ_BIT_NUM_OUT_CAP) | PROJ_OUT_FET_PINS_INV_MASK)
+#define PROJ_STATE_GPIO_CAPOFF_PWMOFF (PROJ_OUT_FET_PINS_INV_MASK)
 
 
 uint8_t dirty_flags;
@@ -198,19 +213,13 @@ uint8_t dirty_flags;
 */
 
 // relies on active bank 0
-// TODO unoptimal
-#define PROJ_TRIGGER_PWM_0 \
-    asm("movf _gp_shadow,w"); \
-    asm("btfsc _gp_shadow," AUX_STRINGIFY(PROJ_BIT_NUM_OUT_PWM)); \
-    asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK)); \
+#define PROJ_SET_GPIO(a_value) \
+    asm("movlw " AUX_STRINGIFY(a_value)); \
     asm("movwf 5"); /* assign GPIO */ \
     asm("movwf _gp_shadow"); /* refresh gp_shadow */
-#define PROJ_TRIGGER_PWM_1 \
-    asm("movf _gp_shadow,w"); \
-    asm("btfss _gp_shadow," AUX_STRINGIFY(PROJ_BIT_NUM_OUT_PWM)); \
-    asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK)); \
-    asm("movwf 5"); /* assign GPIO */ \
-    asm("movwf _gp_shadow"); /* refresh gp_shadow */
+#define PROJ_SET_GPIO_CAPON_PWMON PROJ_SET_GPIO(PROJ_STATE_GPIO_CAPON_PWMON)
+#define PROJ_SET_GPIO_CAPON_PWMOFF PROJ_SET_GPIO(PROJ_STATE_GPIO_CAPON_PWMOFF)
+#define PROJ_SET_GPIO_CAPOFF_PWMOFF PROJ_SET_GPIO(PROJ_STATE_GPIO_CAPOFF_PWMOFF)
 
 // local isr vars
 #define PROJ_ISR_CTR_INITER_T0 16
@@ -230,7 +239,7 @@ void isr(void) __at(0x0004)
     //asm("bcf 3,5"); // select bank 0 - may be not necessary in isr
     // context saved
 
-    PROJ_TRIGGER_PWM_0 // we actually should never get here (during cycle) as we catch upcoming timer interrupt and process manually
+    PROJ_SET_GPIO_CAPON_PWMOFF
     // ++64ms
     asm("decfsz _isr_ctr_t0,f"); // --ctr, test
     asm("goto labe_isr_out");
@@ -391,7 +400,7 @@ uint8_t pending_raw_adc_val;
 uint8_t thr_min;
 uint8_t thr_hi; // high level voltage threshold
 uint8_t thr_lo; // low/instant-off voltage threshold
-uint8_t pwr_level = 0; // active power level - the higher - the lower is inductor frequency. zero is disconnected
+uint8_t pwr_level = 1; // active power level. 0,1 = disconnected; max,max+1 = straight open;
 uint8_t tmp_ctr; // temporary
 uint8_t tmp_ctr2; // temporary
 
@@ -410,8 +419,8 @@ void aux_delay_generic() {
     // 'return' is auto-generated
 }
 #define AUX_DELAY_1 asm("nop");
-#define AUX_DELAY_2 asm("nop"); asm("nop");
-#define AUX_DELAY_3 asm("nop"); asm("nop"); asm("nop");
+#define AUX_DELAY_2 asm("nop2"); // compiler knows what to do with nop2; apparently a jump to next command
+#define AUX_DELAY_3 asm("nop2"); asm("nop");
 
 #define AUX_DELAY_4 asm("fcall labe_aux_delay_4");
 #define AUX_DELAY_5 asm("fcall labe_aux_delay_5");
@@ -457,37 +466,41 @@ void apply_pwr_level() __at(0x0040)
 
     // TODO OPT MIGHT take advantage of jump to offset*2 to avoid intermediate jumps in some cases
 
-    asm("goto labe_apply_pwr_level__zero"); // 0
-    asm("goto labe_apply_pwr_level__d2_c1"); // 1
-    asm("goto labe_apply_pwr_level__d2_c2_long"); // 2
-    asm("goto labe_apply_pwr_level__d2_c2_short"); // 3
-    asm("goto labe_apply_pwr_level__d3_c1"); // 4
-    asm("goto labe_apply_pwr_level__d2c1__d3c1"); // 5
-    asm("goto labe_apply_pwr_level__d3c1__d3c1"); // 6
-    asm("goto labe_apply_pwr_level__d3_c2"); // 7
-    asm("goto labe_apply_pwr_level__d3_c3"); // 8
-    asm("goto labe_apply_pwr_level__d3_c4"); // 9
-    asm("goto labe_apply_pwr_level__d3_c5"); // 10
-    asm("goto labe_apply_pwr_level__d3_c7"); // 11
-    asm("goto labe_apply_pwr_level__d3_c9"); // 12
-    asm("goto labe_apply_pwr_level__d3_c12"); // 13
-    asm("goto labe_apply_pwr_level__d3_c15"); // 14
-    asm("goto labe_apply_pwr_level__d3_c19"); // 15
-    asm("goto labe_apply_pwr_level__d3_c24"); // 16
-    asm("goto labe_apply_pwr_level__d4_c18"); // 17
-    asm("goto labe_apply_pwr_level__d5_c15"); // 18
-    asm("goto labe_apply_pwr_level__d6_c12"); // 19
-    asm("goto labe_apply_pwr_level__d7_c10"); // 20
-    asm("goto labe_apply_pwr_level__d9_c8"); // 21
-    asm("goto labe_apply_pwr_level__d12_c6"); // 22
-    asm("goto labe_apply_pwr_level__d15_c5"); // 23
-    asm("goto labe_apply_pwr_level__d18_c4"); // 24
-    asm("goto labe_apply_pwr_level__d21_c3"); // 25
-    asm("goto labe_apply_pwr_level__max"); // 26
+    asm("goto labe_apply_pwr_level__pre_zero"); // 0 *
+    asm("goto labe_apply_pwr_level__zero"); // 1
+    asm("goto labe_apply_pwr_level__d2_c1"); // 2
+    asm("goto labe_apply_pwr_level__d2_c2_long"); // 3
+    asm("goto labe_apply_pwr_level__d2_c2_short"); // 4
+    asm("goto labe_apply_pwr_level__d3_c1"); // 5
+    asm("goto labe_apply_pwr_level__d2c1__d3c1"); // 6
+    asm("goto labe_apply_pwr_level__d3c1__d3c1"); // 7
+    asm("goto labe_apply_pwr_level__d3_c2"); // 8
+    asm("goto labe_apply_pwr_level__d3_c3"); // 9
+    asm("goto labe_apply_pwr_level__d3_c4"); // 10
+    asm("goto labe_apply_pwr_level__d3_c5"); // 11
+    asm("goto labe_apply_pwr_level__d3_c7"); // 12
+    asm("goto labe_apply_pwr_level__d3_c9"); // 13
+    asm("goto labe_apply_pwr_level__d3_c12"); // 14
+    asm("goto labe_apply_pwr_level__d3_c15"); // 15
+    asm("goto labe_apply_pwr_level__d3_c19"); // 16
+    asm("goto labe_apply_pwr_level__d3_c24"); // 17
+    asm("goto labe_apply_pwr_level__d4_c18"); // 18
+    asm("goto labe_apply_pwr_level__d5_c15"); // 19
+    asm("goto labe_apply_pwr_level__d6_c12"); // 20
+    asm("goto labe_apply_pwr_level__d7_c10"); // 21
+    asm("goto labe_apply_pwr_level__d9_c8"); // 22
+    asm("goto labe_apply_pwr_level__d12_c6"); // 23
+    asm("goto labe_apply_pwr_level__d15_c5"); // 24
+    asm("goto labe_apply_pwr_level__d18_c4"); // 25
+    asm("goto labe_apply_pwr_level__d21_c3"); // 26
+    asm("goto labe_apply_pwr_level__max"); // 27
+    asm("goto labe_apply_pwr_level__post_max"); // 28 max+1 *
     // end table
     // ----- 0
+    asm("labe_apply_pwr_level__pre_zero:");
+    asm("incf _pwr_level,f"); // edge handling
     asm("labe_apply_pwr_level__zero:");
-        PROJ_TRIGGER_PWM_0
+        PROJ_SET_GPIO_CAPON_PWMOFF
         asm("return");
 
     // TODO handle PROJ_BIT_NUM_IN_INV_LIMIT as much as possible
@@ -878,7 +891,7 @@ void apply_pwr_level() __at(0x0040)
     asm("movwf _tmp_ctr");
     asm("movf _gp_shadow,w");
     //
-    asm("btfsc 5," AUX_STRINGIFY(PROJ_BIT_NUM_OUT_PWM)); // check if we came here from pwr MAX - then pre-apply 0
+    asm("btfsc 5," AUX_STRINGIFY(PROJ_BIT_NUM_OUT_PWM_0)); // check if we came here from pwr MAX - then pre-apply 0
     asm("goto labe_apply_pwr_level__special");
     //
     // ----- generic 21
@@ -902,21 +915,26 @@ void apply_pwr_level() __at(0x0040)
             asm("movwf 5"); /* assign GPIO: output = 0 */
             asm("return");
 
+    asm("labe_apply_pwr_level__post_max:");
+    asm("decf _pwr_level,f"); // edge handling
     asm("labe_apply_pwr_level__max:");
-        PROJ_TRIGGER_PWM_1
+        PROJ_SET_GPIO_CAPON_PWMON
         asm("return");
 }
 
 void main() {
-    TRISIO = ((1 << PROJ_BIT_NUM_OUT_PWM)
+    TRISIO = ((1 << PROJ_BIT_NUM_OUT_PWM_0)
+            | (1 << PROJ_BIT_NUM_OUT_PWM_1)
             | (1 << PROJ_BIT_NUM_OUT_CAP)
+#ifdef PROJ_BIT_NUM_OUT_INV_PWM
             | (1 << PROJ_BIT_NUM_OUT_INV_PWM)
+#endif
             ) ^ 0x3F
             ;
     ANSEL = (PROJ_ADC_ADCS << 4) | (1 << PROJ_ADC_CH_VOL); // set conversion time and ADC channel
 
     asm("bcf 3,5"); // ensure bank0 selected
-    asm("movlw " AUX_STRINGIFY((1 << PROJ_BIT_NUM_OUT_CAP) | (1 << PROJ_BIT_NUM_OUT_INV_PWM)));
+    asm("movlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMOFF));
     asm("movwf 5"); // initial assignment
     asm("movwf _gp_shadow");
 
@@ -953,10 +971,8 @@ void main() {
     asm("goto labe_main__preinit_raw_adc");
     asm("clrf _dirty_flags");
     {
-        PROJ_TRIGGER_PWM_0
-        asm("bcf _gp_shadow," AUX_STRINGIFY(PROJ_BIT_NUM_OUT_CAP));
-        asm("movf _gp_shadow,w");
-        asm("movwf 5"); // detach cap
+        PROJ_SET_GPIO_CAPON_PWMOFF
+        PROJ_SET_GPIO_CAPOFF_PWMOFF
 
         asm("fcall _fast_RunADC_8_rising");
         asm("movf 30,w"); // w = ADRESH (ADC result)
@@ -998,7 +1014,7 @@ void main() {
         asm("skipc"); // c == no borrow
         asm("goto labe_main__cycle_pre_check_flags"); // pwr_level < cut_level : just pass to flags processing
             // pwr_level >= cut_level
-            PROJ_TRIGGER_PWM_0 // ensure output is switched to 0 in case we came here from max pwr level
+            PROJ_SET_GPIO_CAPON_PWMOFF // ensure output is switched to 0 in case we came here from max pwr level
             asm("movlw " AUX_STRINGIFY(PROJ_PWR_LEVEL_CUT)); // w == cut_level
             asm("movwf _pwr_level"); // cut
             asm("goto labe_main__cycle_pre_check_flags");
@@ -1023,9 +1039,7 @@ void main() {
                 asm("skipnc"); // nc == borrow
                 asm("goto labe_main__le_thr_lo"); // jump if thr_lo >= adcval
                     // else : adcval > thr_lo ; adcval < thr_hi
-                    asm("movf _pwr_level,f"); // test self
-                    asm("skipz"); // check for non-zero
-                    asm("decf _pwr_level,f"); // decrement (if non zero)
+                    asm("decf _pwr_level,f"); // decrement (edge handling is done inside apply_pwr func)
                     asm("goto labe_main__pre_apply_pwr");
                 asm("labe_main__le_thr_lo:");
                 // thr_lo >= adcval
@@ -1051,10 +1065,7 @@ void main() {
                 // else - rising allowed, reset the counter and rise
                 asm("movlw " AUX_STRINGIFY(PROJ_PWR_RISE_DELAY)); // w = PROJ_PWR_RISE_DELAY
                 asm("movwf _app_rise_counter"); // app_rise_counter = PROJ_PWR_RISE_DELAY
-            asm("movlw " AUX_STRINGIFY(PROJ_PWR_LEVEL_MAX));
-            asm("subwf _pwr_level,w");
-            asm("skipc");
-            asm("incf _pwr_level,f"); // increment, if not max
+            asm("incf _pwr_level,f"); // increment (edge handling is done inside apply_pwr func)
             // redundant cmd: asm("goto labe_main__pre_apply_pwr");
             asm("labe_main__pre_apply_pwr:");
             asm("fcall _apply_pwr_level");
@@ -1071,16 +1082,9 @@ void main() {
             asm("btfss _dirty_flags," AUX_STRINGIFY(APP_DIRTY_FLAG_TRAW));
             asm("goto labe_main__traw_non_dirty");
                 // detach load, then detach cap
-                asm("movf _gp_shadow,w");
-                asm("btfss _gp_shadow," AUX_STRINGIFY(PROJ_BIT_NUM_OUT_PWM));
-                asm("goto labe_main__traw_pre_detach_cap"); // if pwm state=0
-                    // else: pwm state=1
-                    asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK)); // invert
-                    asm("movwf 5");
-                    asm("movwf _gp_shadow"); // update gp_shadow so it's state is: CAP=1,PWM=0
-                asm("labe_main__traw_pre_detach_cap:");
-                asm("xorlw " AUX_STRINGIFY(1 << PROJ_BIT_NUM_OUT_CAP)); // reying on cap state here = 1
-                asm("movwf 5"); // detach cap, give some time to establish raw voltage
+                PROJ_SET_GPIO_CAPON_PWMOFF // TODO can be done slightly faster here (no refreshing gp_shadow needed until the end of block (or ever?))
+                PROJ_SET_GPIO_CAPOFF_PWMOFF
+                // detached cap, give some time to establish raw voltage
                 // now flags
                 asm("bcf _dirty_flags," AUX_STRINGIFY(APP_DIRTY_FLAG_TRAW));
                 asm("movlw " AUX_STRINGIFY(PROJ_PWR_RISE_DELAY)); // w = PROJ_PWR_RISE_DELAY
@@ -1093,8 +1097,7 @@ void main() {
                 // and run adc and bring cap back
                 asm("fcall _fast_RunADC_8_rising");
                 // attach cap first
-                asm("movf _gp_shadow,w");
-                asm("movwf 5"); // attach capacitor back
+                PROJ_SET_GPIO_CAPON_PWMOFF // attach capacitor back
                 // now save result
                 asm("movf 30,w"); // w = ADRESH (ADC result)
                 asm("movwf _pending_raw_adc_val");
