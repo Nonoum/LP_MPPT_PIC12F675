@@ -34,6 +34,7 @@
         8. with this minimum schematic the output is not regulated so it can reach up to "open circuit voltage" of the solar panel connected,
             as a very simple voltage limiter - a buck(step-down) converter can be used.
 
+NOTES at the moment of first release (0.1.0.A) [to be updated later]:
     Output voltage/feedback: it's planned to implement feedback for output voltage limiting with an optocoupler and a comparator;
 
     Features:
@@ -125,24 +126,33 @@
 
 // version info (3 numbers and letter) is accessible at top program-memory addresses right before OSCCAL (retlw commands)
 #define FW_VER_MAJOR 0
-#define FW_VER_MINOR 7
+#define FW_VER_MINOR 8
 #define FW_VER_THR PROJ_CONST_THR
 #define FW_VER_OPTION 'F' // some letter describing topology/configuration of compiled code. default is 'F'
 /*
     FW_VER_OPTION vaiants:
     - 'A' (0x41) : unregulated output;
+        * this is deprecated topology - replaced with compatible 'B', which supports extra features.
         GPIO0 - PWM (output-fet-driving pin);
         GPIO1 - controls mosfet of buffer capacior;
         GPIO2 is ADC input;
         // next are debug pins which were recommended to stay disconnected:
         GPIO4 - input mode debug pin, GPIO5 - output mode debug pin.
         GPIO3 - unused floating input;
-    - 'B' (0x42) : optionally regulated output; 'B' is extension of 'A' in case debug pins weren't used.
+    - 'B' (0x42) : optionally regulated output, also has inverted PWM pin; 'B' is extension of 'A' in case debug pins weren't used.
         GPIO0 - PWM (output-fet-driving pin);
         GPIO1 - controls mosfet of buffer capacior;
         GPIO2 is ADC input;
         GPIO4 - inverted 'limit' input, has internal pullup. pull to gnd when outputting power needs to be suspended;
         GPIO5 - inverted PWM pin (strict phase matching with non-inverted PWM). can be used to strengthen closing output fet with small extra fet.
+        GPIO3 - unused floating input;
+    - 'F' (0x46) : optionally regulated output; pinout is incompatible with previous versions;
+        * no inverted PWM output is supported for this topology.
+        GPIO0 - controls mosfet of buffer capacior;
+        GPIO1 - PWM (output-fet-driving pin);
+        GPIO2 - PWM (output-fet-driving pin) - any of GPIO1 or GPIO2 or both can be used, assumed to use both for more pin rated current;
+        GPIO4 is ADC input;
+        GPIO5 - inverted 'limit' input, has internal pullup. pull to gnd when outputting power needs to be suspended;
         GPIO3 - unused floating input;
 */
 
@@ -176,15 +186,23 @@
 
 #define PROJ_ADC_ADCS 0b010 // conversion time; 32 Tosc (8 tacts)
 
+// TODO technically unused, may be removed fully
 #define PROJ_THR_DIFF_INSTANT_DROPOUT 6 // thr_hi - adcval >= 'this' ? full power drop
-#define PROJ_PWR_LEVEL_MAX 27
-#define PROJ_PWR_LEVEL_CUT 19 // TODO will be reworked to different approach
-
-#define PROJ_PWR_RISE_DELAY 3 // number of consequent times for ADC checks to trigger single rise in certain cases
 
 GPIObits_t gp_shadow;
 
-uint8_t app_rise_counter;
+uint8_t is_prev_cycle_pwr; // [0:1], if previous cycle applied pwr (limit wasn't reached in the beginning)
+
+uint8_t app_flags;
+#define PROJ_APP_FLAG_T0IF_RETURN_TRAP 0
+
+#define PROJ_TIMER_MULTIPLIER 16
+uint8_t timer_multiplier = PROJ_TIMER_MULTIPLIER;
+
+
+
+#define LOCATION__INTCONbits_T0IF "11,2"
+
 
 #define PROJ_OUT_FET_PINS_POS_MASK ((1 << PROJ_BIT_NUM_OUT_PWM_0) | (1 << PROJ_BIT_NUM_OUT_PWM_1))
 #ifdef PROJ_BIT_NUM_OUT_INV_PWM
@@ -198,13 +216,6 @@ uint8_t app_rise_counter;
 #define PROJ_STATE_GPIO_CAPON_PWMOFF ((1 << PROJ_BIT_NUM_OUT_CAP) | PROJ_OUT_FET_PINS_INV_MASK)
 #define PROJ_STATE_GPIO_CAPOFF_PWMOFF (PROJ_OUT_FET_PINS_INV_MASK)
 
-
-uint8_t dirty_flags;
-#define APP_DIRTY_FLAG_TRAW 0 // bit numbers. if another 1000ms have passed and requires processing
-#define APP_DIRTY_FLAG_TDEBUG 1 // debug time (not used if not debug build)
-#define APP_DIRTY_FLAG_THRS 2 // if thresholds need recalculation
-#define APP_DIRTY_FLAG_NOP1 3
-#define APP_DIRTY_FLAG_NOP2 4
 
 /*
     OSSCAL deviation: on my PIC it was x1.65 difference between min and max frequency (osccal 0x00-min freq and 0xFC-max freq)
@@ -221,64 +232,10 @@ uint8_t dirty_flags;
 #define PROJ_SET_GPIO_CAPON_PWMOFF PROJ_SET_GPIO(PROJ_STATE_GPIO_CAPON_PWMOFF)
 #define PROJ_SET_GPIO_CAPOFF_PWMOFF PROJ_SET_GPIO(PROJ_STATE_GPIO_CAPOFF_PWMOFF)
 
-// local isr vars
-#define PROJ_ISR_CTR_INITER_T0 16
-uint8_t isr_ctr_t0 = PROJ_ISR_CTR_INITER_T0;
-
-// isr cache
-uint8_t temp_w;
-uint8_t temp_status;
-//
-
-asm("global _isr");
-void isr(void) __at(0x0004)
-{
-    asm("movwf _temp_w");
-    asm("swapf 3,w");
-    asm("movwf _temp_status");
-    //asm("bcf 3,5"); // select bank 0 - may be not necessary in isr
-    // context saved
-
-    PROJ_SET_GPIO_CAPON_PWMOFF
-    // ++64ms
-    asm("decfsz _isr_ctr_t0,f"); // --ctr, test
-    asm("goto labe_isr_out");
-        asm("bsf _dirty_flags," AUX_STRINGIFY(APP_DIRTY_FLAG_TRAW));
-        asm("movlw " AUX_STRINGIFY(PROJ_ISR_CTR_INITER_T0));
-        asm("movwf _isr_ctr_t0"); // reinit ctr
-    asm("labe_isr_out:");
-    asm("bcf 11,2"); // INTCONbits.T0IF = 0; // regardless of current bank
-
-    // context restoring
-    asm("swapf _temp_status,w");
-    asm("movwf 3"); // recover status
-    asm("swapf _temp_w,f");
-    asm("swapf _temp_w,w"); // recover w
-    //
-    asm("retfie"); // compiler auto-generates "return" here, nevermind at the moment, just use explicit retfie.
-}
-
-// >= 3 tacts: 3 or 5
-#define PROJ_INLINED_ISR_REPLACEMENT(lbl_name) \
-    asm("decfsz _isr_ctr_t0,f"); \
-    asm("goto "lbl_name); \
-        asm("bsf _dirty_flags," AUX_STRINGIFY(APP_DIRTY_FLAG_TRAW)); \
-        asm("movlw " AUX_STRINGIFY(PROJ_ISR_CTR_INITER_T0)); \
-        asm("movwf _isr_ctr_t0"); \
-    asm(""lbl_name":");
 
 
-// >= 5 tacts: 5 or 5+(3 or 8 or 10) == 5 or 8 or 13 or 15 tacts :: debug
-// >= 5 tacts: 5 or 5+(3 or 5) == 5 or 8 or 10 tacts             :: non-debug
-#define PROJ_CATCH_AVOID_ISR(lbl_name_exit, n_timer_periods) \
-    asm("movlw " AUX_STRINGIFY(256-n_timer_periods)); \
-    /* asm("bcf	3,5"); select bank 0 (for tmr0 reg) */ \
-    asm("subwf 1,w"); \
-    asm("skipc"); /* c == no borrow -> timer is lower than constant specified */ \
-    asm("goto "lbl_name_exit); \
-    asm("clrf 1"); /* TMR0 = 0; avoid ISR */ \
-    PROJ_INLINED_ISR_REPLACEMENT(lbl_name_exit)
-
+#define PROJ_SKIP_IF_LIMIT_REACHED asm("btfsc 5," AUX_STRINGIFY(PROJ_BIT_NUM_IN_INV_LIMIT));
+#define PROJ_SKIP_IF_LIMIT_NOTREACHED asm("btfss 5," AUX_STRINGIFY(PROJ_BIT_NUM_IN_INV_LIMIT));
 
 
 // sets up adc on PROJ_ADC_CH_VOL; relies on bank 0 being selected
@@ -367,7 +324,7 @@ void fast_mul_8x8() {
         asm("addwf _fast_mul_8x8_res_l,f");
         asm("skipnc");
         asm("incf _fast_mul_8x8_res_h");
-            asm("clrc"); // post 2, pre 2 // only needed if changed after last RRF command
+            asm("clrc"); // post 3, pre 2 // only needed if changed after last RRF command
     #endif
             asm("rlf _fast_mul_8x8_res_l,f");
             asm("rlf _fast_mul_8x8_res_h,f");
@@ -455,7 +412,7 @@ void aux_delay_generic() {
 
 
 #define PROJ_TEST_LIMIT_RETURN_2_TACTS \
-    asm("btfss 5," AUX_STRINGIFY(PROJ_BIT_NUM_IN_INV_LIMIT)); \
+    PROJ_SKIP_IF_LIMIT_NOTREACHED \
     asm("return");
 
 void apply_pwr_level() __at(0x0040)
@@ -934,20 +891,19 @@ void main() {
     ANSEL = (PROJ_ADC_ADCS << 4) | (1 << PROJ_ADC_CH_VOL); // set conversion time and ADC channel
 
     asm("bcf 3,5"); // ensure bank0 selected
-    asm("movlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMOFF));
-    asm("movwf 5"); // initial assignment
-    asm("movwf _gp_shadow");
+    PROJ_SET_GPIO_CAPON_PWMOFF // initial assignment
 
     CMCON = 0x07;
     WPU = 0xFF; // all possible pullups
     OSCCAL = __osccal_val();
 
-    dirty_flags = 0;
-    app_rise_counter = PROJ_PWR_RISE_DELAY;
+    is_prev_cycle_pwr = 0;
+
+    app_flags = 0;
 
     OPTION_REG = (PROJ_TMR_PRESCALE); // (!nGPPU - enable pullups), prescaler setup
     TMR0 = 0;
-    INTCON = 0xA0; // GIE + T0IE: enable interrupts and T0 timer
+    INTCON = 0x00; // no interrupts, run timer0
 
     asm("bcf 3,5"); // ensure bank0 selected
     PROJ_ADC_SETUP__WHEN_BANK0()
@@ -966,10 +922,16 @@ void main() {
 
     // pre-init raw adc with pre-wait 1 second
     asm("bcf 3,5"); // ensure bank0 selected
-    asm("labe_main__preinit_raw_adc:");
-    asm("btfss _dirty_flags," AUX_STRINGIFY(APP_DIRTY_FLAG_TRAW));
-    asm("goto labe_main__preinit_raw_adc");
-    asm("clrf _dirty_flags");
+    {
+        asm("main__time_waiter:");
+        asm("btfss " LOCATION__INTCONbits_T0IF);
+        asm("goto main__time_waiter");
+        asm("bcf " LOCATION__INTCONbits_T0IF);
+        asm("decfsz _timer_multiplier,f");
+        asm("goto main__time_waiter");
+            asm("movlw " AUX_STRINGIFY(PROJ_TIMER_MULTIPLIER));
+            asm("movwf _timer_multiplier");
+    }
     {
         PROJ_SET_GPIO_CAPON_PWMOFF
         PROJ_SET_GPIO_CAPOFF_PWMOFF
@@ -1000,155 +962,187 @@ void main() {
     }
     //
 
-    asm("labe_main__cycle:");
-        // asm("bcf 3,5"); // ensure bank0 selected
-        PROJ_ADC_START()
-        PROJ_CATCH_AVOID_ISR("labe_main__intercept_isr", 2) // 2 => at least 512 tacts until isr
-        // check for limit
-        asm("btfsc 5," AUX_STRINGIFY(PROJ_BIT_NUM_IN_INV_LIMIT));
-        asm("goto labe_main__cycle_await_adc");
-        // limit reached - handle it
-        PROJ_ADC_WAIT("labe_main__cycle_dummy_await_adc") // adc awaiting to ensure correct functioning. TODO can be optimized out depending on timings
-        asm("movlw " AUX_STRINGIFY(PROJ_PWR_LEVEL_CUT)); // w == cut_level
-        asm("subwf _pwr_level,w"); // w(cut_level) = pwr_level - w
-        asm("skipc"); // c == no borrow
-        asm("goto labe_main__cycle_pre_check_flags"); // pwr_level < cut_level : just pass to flags processing
-            // pwr_level >= cut_level
-            PROJ_SET_GPIO_CAPON_PWMOFF // ensure output is switched to 0 in case we came here from max pwr level
-            asm("movlw " AUX_STRINGIFY(PROJ_PWR_LEVEL_CUT)); // w == cut_level
-            asm("movwf _pwr_level"); // cut
-            asm("goto labe_main__cycle_pre_check_flags");
-
-        // main part:
-            PROJ_ADC_WAIT("labe_main__cycle_await_adc") // TODO if ADC time selection changes to 4us - explicit awaiting can be omitted in this place
 #define VAR_ADCVAL "30" // avoid copying ADC result to minimize executed code
-//            asm("movf 30,w"); // w = ADRESH
-//            asm("movwf _tmp_ctr"); // tmp_ctr = w (ADC result)
-//#define VAR_ADCVAL "_tmp_ctr"
-            // relying on bank0 selected here
-            asm("movf _thr_hi,w"); // w = thr_hi
-            asm("subwf " VAR_ADCVAL ",w"); // w = adcval - thr_hi
-            asm("skipnc"); // nc == borrow
-            asm("goto labe_main__ge_thr_hi"); // jump if adcval >= thr_hi
-                // else : adcval < thr_hi
-                asm("movlw " AUX_STRINGIFY(1)); // w = 1
-                asm("movwf _app_rise_counter"); // app_rise_counter = 1 (allow fastest rise)
 
-                asm("movf " VAR_ADCVAL ",w"); // w = adcval
-                asm("subwf _thr_lo,w"); // w = thr_lo - adcval
-                asm("skipnc"); // nc == borrow
-                asm("goto labe_main__le_thr_lo"); // jump if thr_lo >= adcval
-                    // else : adcval > thr_lo ; adcval < thr_hi
-                    asm("decf _pwr_level,f"); // decrement (edge handling is done inside apply_pwr func)
-                    asm("goto labe_main__pre_apply_pwr");
-                asm("labe_main__le_thr_lo:");
-                // thr_lo >= adcval
-                asm("clrf _pwr_level");
-                asm("goto labe_main__pre_apply_pwr");
-                ////
-                asm("labe_main__eq_thr_hi:"); // adcval == thr_hi
-                asm("movf _pwr_level,f"); // test curr power
-                asm("skipnz");
-                asm("goto labe_main__maybe_rise"); // allow such rising from pwr0 to pwr1 only, otherwise - reset counter, consider a 'stable state'
-                asm("movlw " AUX_STRINGIFY(1)); // w = 1
-                asm("movwf _app_rise_counter"); // app_rise_counter = 1 (allow fastest rise)
-                asm("goto labe_main__pre_apply_pwr");
-                ////
-            asm("labe_main__ge_thr_hi:");
-            // adcval >= thr_hi
-            asm("skipnz");
-            asm("goto labe_main__eq_thr_hi"); // jump if adcval == thr_hi
-            // adcval > thr_hi
-            asm("labe_main__maybe_rise:");
-            asm("decfsz _app_rise_counter");
-            asm("goto labe_main__pre_apply_pwr"); // rising not allowed yet, jump to apply pwr
-                // else - rising allowed, reset the counter and rise
-                asm("movlw " AUX_STRINGIFY(PROJ_PWR_RISE_DELAY)); // w = PROJ_PWR_RISE_DELAY
-                asm("movwf _app_rise_counter"); // app_rise_counter = PROJ_PWR_RISE_DELAY
-            asm("incf _pwr_level,f"); // increment (edge handling is done inside apply_pwr func)
-            // redundant cmd: asm("goto labe_main__pre_apply_pwr");
-            asm("labe_main__pre_apply_pwr:");
+    PROJ_ADC_START()
+    AUX_DELAY_3 // align with cycle internal delays
+    asm("labe_main__cycle:");
+        PROJ_SKIP_IF_LIMIT_NOTREACHED
+        asm("goto labe_main__cycle_handle_limit_pocket");
+            // else - limit not reached
+            asm("bsf _is_prev_cycle_pwr,0");
+            asm("incf _pwr_level,f"); // pre-increment (will either stay incremented...)
+            asm("movf _thr_hi,w"); // w = thr_hi
+            // ADC has finished by this point - commands between launching ADC and using result execute 8 tacts, so 9 tacts (36Tosc) inbetween
+            asm("subwf " VAR_ADCVAL ",w"); // w = adcval - thr_hi
+            asm("movlw 2"); // doesn't affect status
+            asm("skipc"); // c == no borrow
+            asm("subwf _pwr_level,f"); // pwr_level = pwr_level - w(2) (...or will be decremented)
+            // TODO consider higher drop-offs as some short-circut handling/more aggressive balancing?
+
             asm("fcall _apply_pwr_level");
-        // main part done
+            // main part done
 
 
         asm("labe_main__cycle_pre_check_flags:");
-        // asm("bcf 3,5"); // ensure bank0 selected
-        asm("movf _dirty_flags,f"); // test
+        PROJ_ADC_START()
+        asm("btfss " LOCATION__INTCONbits_T0IF);
+        asm("goto labe_main__cycle");
+        asm("btfsc _app_flags," AUX_STRINGIFY(PROJ_APP_FLAG_T0IF_RETURN_TRAP));
+        asm("return");
+
+        asm("decfsz _timer_multiplier,f"); // TODO consider timer1 for shorter code
+        asm("goto labe_main__cycle_timer_unlocker");
+            asm("movlw " AUX_STRINGIFY(PROJ_TIMER_MULTIPLIER));
+            asm("movwf _timer_multiplier");
+
+        asm("bsf _app_flags," AUX_STRINGIFY(PROJ_APP_FLAG_T0IF_RETURN_TRAP));
+        // measure/update raw voltage
+        PROJ_SET_GPIO_CAPON_PWMOFF
+        PROJ_SET_GPIO_CAPOFF_PWMOFF
+        // detached cap, give some time to establish raw voltage
+        asm("fcall _fast_RunADC_8_rising");
+        PROJ_SET_GPIO_CAPON_PWMOFF // attach capacitor back
+        // save result
+        asm("movf 30,w"); // w = ADRESH (ADC result)
+        asm("movwf _pending_raw_adc_val");
+        //// measured; run a cycle to minimize delay gap
+            PROJ_ADC_START()
+            AUX_DELAY_1
+            asm("fcall labe_main__cycle");
+        //// refresh thr if needed
+        asm("movf _pending_raw_adc_val,w"); // TODO input1 can be union with last_raw_adc_val to save 2 commands
+        asm("xorwf _last_raw_adc_val,w");
         asm("skipnz");
+        asm("goto labe_main__cycle_flags_done"); // no changes
+        // different - needs recalculation
+
+        asm("clrf _fast_mul_8x8_res_h");
+        asm("clrf _fast_mul_8x8_res_l");
+            //// run cycle - minimize difference in delays
+            PROJ_ADC_START()
+            AUX_DELAY_1 // align delays
+            asm("fcall labe_main__cycle");
+            ////
+
+        asm("movf _pending_raw_adc_val,w");
+        asm("movwf _last_raw_adc_val");
+        // inlined multiplication
+        #if (PROJ_CONST_THR & 0x80)
+            asm("addwf _fast_mul_8x8_res_l,f");
+            asm("rlf _fast_mul_8x8_res_l,f");
+            asm("rlf _fast_mul_8x8_res_h,f");
+        #endif
+        #if (PROJ_CONST_THR & 0x40)
+            asm("addwf _fast_mul_8x8_res_l,f");
+            asm("skipnc");
+            asm("incf _fast_mul_8x8_res_h");
+        #endif
+                asm("clrc"); // post 6, pre 5
+                asm("rlf _fast_mul_8x8_res_l,f");
+                asm("rlf _fast_mul_8x8_res_h,f");
+            //// run cycle - minimize difference in delays
+            PROJ_ADC_START()
+            AUX_DELAY_1 // align delays
+            asm("fcall labe_main__cycle");
+            asm("movf _pending_raw_adc_val,w"); // recover W
+            ////
+        #if (PROJ_CONST_THR & 0x20)
+            asm("addwf _fast_mul_8x8_res_l,f");
+            asm("skipnc");
+            asm("incf _fast_mul_8x8_res_h");
+        #endif
+                asm("clrc"); // post 5, pre 4
+                asm("rlf _fast_mul_8x8_res_l,f");
+                asm("rlf _fast_mul_8x8_res_h,f");
+        #if (PROJ_CONST_THR & 0x10)
+            asm("addwf _fast_mul_8x8_res_l,f");
+            asm("skipnc");
+            asm("incf _fast_mul_8x8_res_h");
+        #endif
+                asm("clrc"); // post 4, pre 3
+                asm("rlf _fast_mul_8x8_res_l,f");
+                asm("rlf _fast_mul_8x8_res_h,f");
+        #if (PROJ_CONST_THR & 0x08)
+            asm("addwf _fast_mul_8x8_res_l,f");
+            asm("skipnc");
+            asm("incf _fast_mul_8x8_res_h");
+        #endif
+                asm("clrc"); // post 3, pre 2
+                asm("rlf _fast_mul_8x8_res_l,f");
+                asm("rlf _fast_mul_8x8_res_h,f");
+        #if (PROJ_CONST_THR & 0x04)
+            asm("addwf _fast_mul_8x8_res_l,f");
+            asm("skipnc");
+            asm("incf _fast_mul_8x8_res_h");
+        #endif
+                asm("clrc"); // post 2, pre 1
+                asm("rlf _fast_mul_8x8_res_l,f");
+                asm("rlf _fast_mul_8x8_res_h,f");
+            //// run cycle - minimize difference in delays
+            PROJ_ADC_START()
+            AUX_DELAY_1 // align delays
+            asm("fcall labe_main__cycle");
+            asm("movf _pending_raw_adc_val,w"); // recover W
+            ////
+        #if (PROJ_CONST_THR & 0x02)
+            asm("addwf _fast_mul_8x8_res_l,f");
+            asm("skipnc");
+            asm("incf _fast_mul_8x8_res_h");
+        #endif
+                asm("clrc"); // post 1, pre 0
+                asm("rlf _fast_mul_8x8_res_l,f");
+                asm("rlf _fast_mul_8x8_res_h,f");
+        #if (PROJ_CONST_THR & 0x01)
+            asm("addwf _fast_mul_8x8_res_l,f");
+            asm("skipnc");
+            asm("incf _fast_mul_8x8_res_h");
+        #endif
+        // end ------------------
+        asm("movf _fast_mul_8x8_res_h,w");
+        asm("movwf _thr_hi"); // thr_hi = last_raw_adc_val * g_thr / 256
+
+        asm("subwf _thr_min,w"); // w(thr_hi) = thr_min - w ; if borrow - no action
+        asm("skipnc"); // skip next if borrow
+        asm("addwf _thr_hi,f"); // thr_hi += (thr_min - thr_hi)
+
+            //// run cycle - minimize difference in delays
+            PROJ_ADC_START()
+            AUX_DELAY_1 // align delays
+            asm("fcall labe_main__cycle");
+            ////
+
+        asm("movlw " AUX_STRINGIFY(PROJ_THR_DIFF_INSTANT_DROPOUT));
+        asm("subwf _thr_hi,w"); // w = thr_hi - PROJ_THR_DIFF_INSTANT_DROPOUT
+        asm("movwf _thr_lo");
+        //
+
+        // ---------------------------------
+        asm("labe_main__cycle_flags_done:");
+        asm("bcf _app_flags," AUX_STRINGIFY(PROJ_APP_FLAG_T0IF_RETURN_TRAP));
+        asm("labe_main__cycle_timer_unlocker:");
+        PROJ_ADC_START()
+        asm("bcf " LOCATION__INTCONbits_T0IF);
         asm("goto labe_main__cycle");
-            // something is dirty
-            //asm("bcf 3,5"); // ensure bank0 selected
-            asm("btfss _dirty_flags," AUX_STRINGIFY(APP_DIRTY_FLAG_TRAW));
-            asm("goto labe_main__traw_non_dirty");
-                // detach load, then detach cap
-                PROJ_SET_GPIO_CAPON_PWMOFF // TODO can be done slightly faster here (no refreshing gp_shadow needed until the end of block (or ever?))
-                PROJ_SET_GPIO_CAPOFF_PWMOFF
-                // detached cap, give some time to establish raw voltage
-                // now flags
-                asm("bcf _dirty_flags," AUX_STRINGIFY(APP_DIRTY_FLAG_TRAW));
-                asm("movlw " AUX_STRINGIFY(PROJ_PWR_RISE_DELAY)); // w = PROJ_PWR_RISE_DELAY
-                asm("movwf _app_rise_counter"); // app_rise_counter = PROJ_PWR_RISE_DELAY
-                // .. gonna put some dirt in your flags
-                asm("bsf _dirty_flags," AUX_STRINGIFY(APP_DIRTY_FLAG_THRS));
-                asm("bsf _dirty_flags," AUX_STRINGIFY(APP_DIRTY_FLAG_NOP1));
-                asm("bsf _dirty_flags," AUX_STRINGIFY(APP_DIRTY_FLAG_NOP2));
 
-                // and run adc and bring cap back
-                asm("fcall _fast_RunADC_8_rising");
-                // attach cap first
-                PROJ_SET_GPIO_CAPON_PWMOFF // attach capacitor back
-                // now save result
-                asm("movf 30,w"); // w = ADRESH (ADC result)
-                asm("movwf _pending_raw_adc_val");
-                asm("goto labe_main__cycle"); // enough delaying work - to cycle start
-            asm("labe_main__traw_non_dirty:");
-
-
-            // cascade nops - used together (nop2 is nested in nop1 to minimize cycle path delay)
-            asm("btfss _dirty_flags," AUX_STRINGIFY(APP_DIRTY_FLAG_NOP1));
-            asm("goto labe_main__nop1_non_dirty");
-                asm("btfss _dirty_flags," AUX_STRINGIFY(APP_DIRTY_FLAG_NOP2));
-                asm("goto labe_main__nop2_non_dirty");
-                    asm("bcf _dirty_flags," AUX_STRINGIFY(APP_DIRTY_FLAG_NOP2));
-                    asm("goto labe_main__cycle");
-                asm("labe_main__nop2_non_dirty:");
-                //
-                asm("bcf _dirty_flags," AUX_STRINGIFY(APP_DIRTY_FLAG_NOP1));
-                asm("goto labe_main__cycle");
-            asm("labe_main__nop1_non_dirty:");
-
-            // last flag checked - checking is redundant in this case
-            //asm("btfss _dirty_flags," AUX_STRINGIFY(APP_DIRTY_FLAG_THRS));
-            //asm("goto labe_main__cycle"); // asm("goto labe_main__thr_non_dirty");
-                asm("bcf _dirty_flags," AUX_STRINGIFY(APP_DIRTY_FLAG_THRS));
-                //
-                asm("movf _pending_raw_adc_val,w"); // TODO input1 can be union with last_raw_adc_val to save 2 commands
-                asm("xorwf _last_raw_adc_val,w");
-                asm("skipnz");
-                asm("goto labe_main__cycle"); // no changes - to cycle start
-                // different - needs recalculation
-                //
-                asm("movlw " AUX_STRINGIFY(PROJ_PWR_RISE_DELAY)); // w = PROJ_PWR_RISE_DELAY
-                asm("movwf _app_rise_counter"); // app_rise_counter = PROJ_PWR_RISE_DELAY
-
-                asm("movf _pending_raw_adc_val,w");
-                asm("movwf _last_raw_adc_val");
-                asm("fcall _fast_mul_8x8");
-
-                asm("movf _fast_mul_8x8_res_h,w");
-                asm("movwf _thr_hi"); // thr_hi = last_raw_adc_val * g_thr / 256
-                //
-                asm("subwf _thr_min,w"); // w(thr_hi) = thr_min - w ; if borrow - no action
-                asm("skipnc"); // skip next if borrow
-                asm("addwf _thr_hi,f"); // thr_hi += (thr_min - thr_hi)
-                //
-                asm("movlw " AUX_STRINGIFY(PROJ_THR_DIFF_INSTANT_DROPOUT));
-                asm("subwf _thr_hi,w"); // w = thr_hi - PROJ_THR_DIFF_INSTANT_DROPOUT
-                asm("movwf _thr_lo");
-                asm("goto labe_main__cycle"); // enough delaying work - to cycle start
-            //asm("labe_main__thr_non_dirty:");
-        asm("goto labe_main__cycle");
+        // ------------------------------------------
+        asm("labe_main__cycle_handle_limit_pocket:");
+            PROJ_SET_GPIO_CAPON_PWMOFF // ensure output is off (in case we're at max level)
+            asm("btfss _is_prev_cycle_pwr,0");
+            asm("goto labe_main__cycle_pre_check_flags");
+                asm("decf _pwr_level"); // decrement pwr level
+                // ADC result is ready by this moment
+                asm("movf _thr_hi,w"); // w = thr_hi
+                asm("subwf " VAR_ADCVAL ",w"); // w = adcval - thr_hi
+                asm("skipnc"); // nc == borrow
+                asm("decf _pwr_level"); // decrement again if adcval >= thr_hi; as it will very likely be incremented on next cycle
+                // check underflow - ensure minimal pwr_level is 1 after this block
+                asm("decf _pwr_level"); // ---
+                asm("btfsc _pwr_level,7"); // test msb
+                asm("clrf _pwr_level"); // if underflowed - reset
+                asm("incf _pwr_level"); // ---
+            asm("bcf _is_prev_cycle_pwr,0");
+            asm("goto labe_main__cycle_pre_check_flags");
 } //
 
 
