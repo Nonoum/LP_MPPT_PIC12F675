@@ -10,80 +10,81 @@
 
     Global disclaimer: author has very limited testing capabilities, any hardware implementaion should be tested in required scenarios to ensure proper/correct work.
 
-    Principle of work: according to solar panels voltage/current curves at very most part of the range the maximum power point (MPPT) is at around 80% of open circuit voltage (named 'raw voltage' here).
-    So with certain scheme it's possible to measure (almost)open-circuit voltage (with minimal load) and track optimal mode without need of a current sensor.
+    Principle of work: according to solar panels voltage/current curves at very most part of the range the maximum power point (MPP) is at around 80-81% of open circuit voltage (OCV, also named 'raw voltage' here).
+    So with certain scheme it's possible to measure (almost)open circuit voltage (with minimal load) and track optimal mode without need of a current sensor.
 
     Basic scheme description in words:
-        1. solar panel should be connected via diode (shottky SR840 is used in the prototype).
+        1. solar panel should be connected via diode (shottky SR840 is used in prototypes).
         2. input("high voltage" and "gnd") is connected to linear voltage stabilizer and minimal(!) required ceramic capacitor (0.1 - 0.15uf):
-            0.15uf cap and "LP2950CZ-3.3G ON" stabilizer are used in the prototype.
-        3. linear stabilizer has output ceramic capacitor (used 2.2uf in the prototype) and is connected as the PIC MCU power supply;
-            * no mini buck converter can be used instead due to it's high input capacitance.
+            0.15uf cap and "LP2950CZ-3.3G ON" stabilizer are used in the first prototype (similar 5v stabilizer is used in second prototype).
+        3. linear stabilizer has output ceramic capacitor (used 2.2uf in the first prototype) and is connected as the PIC MCU power supply;
+            * it turned out that it's necessary to add extra (larger) output capacitor to ensure adequate work of LP2950CZ, used extra 47uf electrolythic cap;
+ *          * added extra 47uf capacitor requires FW 0.10 and higher for correct work (related to removed measuring of startup voltage);
+            * no mini buck converter can be used instead, due to it's high input capacitance.
         4. one N-channel mosfet connects a large buffer capacitor between "high voltage" and "gnd" and occassionally (~once a second) disconnects it to measure open circuit voltage;
             * required PULLUP EXTERNAL resistor (used 200kOhm) - pull to stabilizer's voltage (which is 3.3v or 5v);
-            heavy 5x 1000uf 35v LOW ESR capacitors are used in the prototype.
+            heavy 5x 1000uf 35v LOW ESR capacitors are used in the first prototype;
+            2x 1000uf are used in second prototype.
         5. second N-channel mosfet connects an output circuit (inductor+diode+capacitor) between "high voltage" and "gnd" and is being PWMed;
             * required PULLDOWN EXTERNAL resistor (used 200kOhm) - pull to "gnd";
-            inductor is around 22uh - 47uh (in currently tested prototype 47uh is used);
+            recommended inductor is around 22uh - 47uh (preferably 33uh, but optimal choice depends on circumstances);
             * different inductors can be used depending on other conditions - calculate for your needs;
-            recommended output capacitor is at least 2000uf (in currently tested prototype 2000uf is used).
+            recommended output capacitor is 2000uf or more.
         6. a calculated voltage divider between "high voltage" and "gnd" is connected to PIC MCU's pin with ADC channel:
             so that maximum possible voltage is <= nominal voltage of linear stabilizer;
-            3.3kOhm : 20kOhm devider is used in prototype, I'd recommend to not exceed (not significantly) sum resistance around 1kOhm per 1v nominal of solar panel.
-        7. mosfets used in prototype are "IRLZ34N" - pretty low input capacitance, proper DS opening at 3.3v.
+            3.3kOhm : 20kOhm devider is used in first prototype (with 3.3v stabilizer), I'd recommend to not exceed (not significantly) sum resistance around 1kOhm per 1v nominal of solar panel;
+            5.6kOhm : 22kOhm divider is used in second prototype with 5v stabilizer.
+        7. mosfets used in prototype are "IRLZ34N" - pretty low input capacitance, proper DS opening at 3.3v;
+            second prototype uses 'buffer' mosfet IRL2203.
         8. with this minimum schematic the output is not regulated so it can reach up to "open circuit voltage" of the solar panel connected,
-            as a very simple voltage limiter - a buck(step-down) converter can be used.
+            as a very simple voltage limiter - a buck(step-down) converter could be used;
+            * FW has native limiting mechanism - see FW_VER_OPTION notes section.
 
-NOTES at the moment of first release (0.1.0.A) [to be updated later]:
-    Output voltage/feedback: it's planned to implement feedback for output voltage limiting with an optocoupler and a comparator;
-
+NOTES for release 0.10.*.*:
     Features:
         - "soft start" in current and all foreseeable future versions;
-        - low self-consumption: prototype consumes 1..2 ma (stable state with no load), having worse linear stabilizer it would be a little more;
+        - low self-consumption: prototypes consume 1..2 ma (stable state with no load), having worse linear stabilizer it would be a little more;
+        - output limiting PIN (second prototype uses extra circuit with an optocoupler and a comparator to implement limiting logic);
+        - inverted PWM pin (fully synchronous with non-inverted, might be used with external fet drivers for very-high power devices).
 
     PIC MCU notes: there are different packages with at least two working voltage ranges: some PICs have 3.6v limit (only 3.3v stabilizer can be used in this case);
 
     Efficiency notes:
-        - prototype has shown efficieny (output RMS power / input RMS power) from around 70 to 92% depending on voltage delta between an MPPT point and target output voltage;
-        - efficieny was measured with not expensive equipment in limited environment;
-        - in described testing 18v panel was used (with typical MPPT ranging within 15 ... 18v);
-        - with plain powerbank as output ("consumed" voltage 4.5 ... 5.2v) deltaV is more than 10 volts and measured efficiency was around 75%;
-        - with output 11.4v (same powerbank but luckily triggered by delay to "stabilize at 12V QC mode" and apparently dropping it's buck cycles to maintain that)
-            deltaV was 3.1V and measured efficiency was 92.5%.
-        - presumably higher voltage linear stabilizer (5v only, more = not allowed for PIC) would yield higher efficiency (or at least with some other mosfets) - this is to be tested;
-        - Miller Effect: wasn't observed in prototype with my testing in artificial environment (tested single output driving pin vs dual output driving pin at 3.3v MCU voltage)
-            * it was tested with output voltages from 2v to 4v and 12v;
-            * 'noticed' in this case means any significant impact on efficiency (around 1% improvement was noticed though it can be due to measuring inaccuracy);
-            * mosfets with larger parasitic capacitance could defenitely require doubled/tripled MCU output pins to drive them at high frequencies;
-            * PIC16F676 could be (relatively)easily adapted to use entire portB (6 pins) for mosfet driving;
-            * mosfet that connects capacitors is rarely triggered so it can (and should) be more powerful (lower RdsON) - planned to test IRL2203 for this;
+        - second prototype has shown conversion efficieny (output RMS power / input RMS power) from around 80 to 97%;
+        - efficieny depends on output voltage and power - lookup charts for buck DC-DC converters, typical efficiency of second prototype with 5v output is 87%, with 12v output - 92-94%;
+        - in described testing 18v panel was used (with typical MPP ranging within 15 ... 18v);
+        - no extra mosfet drivers are needed at least for mosfets with input capacitance up to around 3nf;
 
     Pulsation notes:
-        - output voltage pulsations looked good for 0.1 FW version (and much better since 0.3) although they were evaluated with simple testers (I don't have an oscilloscope);
+        - output voltage pulsations are highly reduced since initial 0.1 FW version;
+        - pulsations are different on different power ranges, overall pretty small, on higher power ranges the device can drive inductor in continuous mode and minimize pulsations even further;
         - even higher pulsations are *presumably okay for charging batteries with good BMS;
-        - increasing capacitance (both buffer and output caps) should smooth pulsations very well (partly tested);
-        - capacitance can be smaller or bigger than in prototype described above, suggestions for buffer and output caps are:
-            -- minimum: 1000uf (buffer), 2000uf(output);
-            -- recommended: 3000uf+ (buffer), 5000uf+(output);
-        - for future addition of output voltage limitation feedback there are expected to be rare more substantial drop-offs (when reaching voltage limit) for the implementation that I have in mind;
+        - increasing capacitance (both buffer and output caps) should smooth/improve pulsations (if needed);
+        - capacitance can be smaller or bigger than in prototypes described above, suggestions for buffer and output caps are:
+            -- minimum: 1000uf (buffer); 1000uf per 1A output current (output cap);
+            -- recommended: 2000uf (buffer), 2000uf per 1A output current (output cap);
         - pulsations can be induced by MPP overshoot, which can significantly reduce input current and thus generated power - see "PROJ_CONST_THR" notes and "Input diode Vf" notes;
         - pulsations can be induced by partial shading (when shading occurs somewhere inseries);
 
-    PWM notes: code does manual pwm with duty (open output mosfet) lengths starting from 2us and duty/nonduty ratio up to 1:1 (less or much-less duty depending on various circumstances).
+    PWM notes:
+        - code does manual PWM with duty (open output mosfet) lengths starting from 2us;
+        - for mosfet driving power considerations expect average switching (ON->OFF or OFF->ON) interval of 3us (worst case), single PIN is rated for 25ma, dual pin - 50ma;
+        - currently (FW 0.10) maximum PWM duty ON length is 40us (+fully open state that can lead this to infinity).
 
     More output voltage limiting notes:
         - powerbank:
             - tested powerbank can be tricked to trigger QC mode and rise voltage - when it's connected it "requests" higher voltage while consuming no substantial load
             and the actual voltage can be rising at the moment so powerbank considers that everything is according to plan and accepts it;
-            - if voltage manages to rise higher than powerbank's limit - it will shut down and won't charge;
+            - if voltage manages to rise higher than powerbank's limit - it will shut down and won't charge (*or powerbank will die - happened with one simple model when 12v was applied during testing);
             - plain buck converter (when added after output) is apparenty fully "opened" and acts as a minor resistance (inductor+mosfet) with it's input and output voltages being almost equal;
+        - powerbank2: pay attention at powerbank's capabilities - if it doesn't support QC/PD then it will likely die from higher voltages (not just shut-off).
 
     Adding to existing solar (battery + PWM charger) system:
         - it's assumed that this controller can be simply connected in series between solar panel and thirdparty "PWM Solar controller" to increase system efficiency,
         although it's not tested and I'm not 100% that a PWM controller would handle this without any issues
         (specifically when charging is done and PWM controller's input voltage goes up);
 
-    Using as-is (non-regulated output) with a BMS and batteries: *presumably will work fine, might trigger BMS's overvoltage protection in certain cases (depends on BMS).
+    Using as-is with non-regulated output with a BMS and batteries: *presumably will work fine, might trigger BMS's overvoltage protection in certain cases (depends on BMS).
 
     Partial shading: use cases of this project don't assume optimal work with significant partial shading (no "full scan" is implemented, nor it's possible with such scheme).
     Personal notes:
@@ -126,7 +127,7 @@ NOTES at the moment of first release (0.1.0.A) [to be updated later]:
 
 // version info (3 numbers and letter) is accessible at top program-memory addresses right before OSCCAL (retlw commands)
 #define FW_VER_MAJOR 0
-#define FW_VER_MINOR 9
+#define FW_VER_MINOR 10
 #define FW_VER_THR PROJ_CONST_THR
 #define FW_VER_OPTION 'F' // some letter describing topology/configuration of compiled code. default is 'F'
 /*
@@ -163,6 +164,65 @@ NOTES at the moment of first release (0.1.0.A) [to be updated later]:
 #define AUX_STRINGIFY_INTERNAL(foo) #foo
 #define AUX_STRINGIFY(foo) AUX_STRINGIFY_INTERNAL(foo)
 
+asm("global _aux_delay_generic");
+void aux_delay_generic() {
+    // 2(call) + ... + 2(return)
+    asm("labe_aux_delay_20:"); asm("fcall labe_aux_delay_4");
+    asm("labe_aux_delay_16:"); asm("fcall labe_aux_delay_4");
+    asm("labe_aux_delay_12:"); asm("fcall labe_aux_delay_4");
+    asm("labe_aux_delay_8:");  asm("fcall labe_aux_delay_4");
+    asm("return");
+    asm("labe_aux_delay_7:"); asm("nop");
+    asm("labe_aux_delay_6:"); asm("nop");
+    asm("labe_aux_delay_5:"); asm("nop");
+    asm("labe_aux_delay_4:");
+    // 'return' is auto-generated
+}
+#define AUX_DELAY_1 asm("nop");
+#define AUX_DELAY_2 asm("nop2"); // compiler knows what to do with nop2; apparently a jump to next command
+#define AUX_DELAY_3 asm("nop2"); asm("nop");
+
+#define AUX_DELAY_4 asm("fcall labe_aux_delay_4");
+#define AUX_DELAY_5 asm("fcall labe_aux_delay_5");
+#define AUX_DELAY_6 asm("fcall labe_aux_delay_6");
+#define AUX_DELAY_7 asm("fcall labe_aux_delay_7");
+#define AUX_DELAY_8 asm("fcall labe_aux_delay_8");
+#define AUX_DELAY_9      asm("fcall labe_aux_delay_4"); asm("fcall labe_aux_delay_5");
+#define AUX_DELAY_10     asm("fcall labe_aux_delay_4"); asm("fcall labe_aux_delay_6");
+#define AUX_DELAY_11     asm("fcall labe_aux_delay_4"); asm("fcall labe_aux_delay_7");
+#define AUX_DELAY_12 asm("fcall labe_aux_delay_12");
+#define AUX_DELAY_13     asm("fcall labe_aux_delay_8"); asm("fcall labe_aux_delay_5");
+#define AUX_DELAY_14     asm("fcall labe_aux_delay_8"); asm("fcall labe_aux_delay_6");
+#define AUX_DELAY_15     asm("fcall labe_aux_delay_8"); asm("fcall labe_aux_delay_7");
+#define AUX_DELAY_16 asm("fcall labe_aux_delay_16");
+#define AUX_DELAY_17     asm("fcall labe_aux_delay_12"); asm("fcall labe_aux_delay_5");
+#define AUX_DELAY_18     asm("fcall labe_aux_delay_12"); asm("fcall labe_aux_delay_6");
+#define AUX_DELAY_19     asm("fcall labe_aux_delay_12"); asm("fcall labe_aux_delay_7");
+#define AUX_DELAY_20 asm("fcall labe_aux_delay_20");
+#define AUX_DELAY_21     asm("fcall labe_aux_delay_16"); asm("fcall labe_aux_delay_5");
+#define AUX_DELAY_22     asm("fcall labe_aux_delay_16"); asm("fcall labe_aux_delay_6");
+#define AUX_DELAY_23     asm("fcall labe_aux_delay_16"); asm("fcall labe_aux_delay_7");
+#define AUX_DELAY_24     asm("fcall labe_aux_delay_16"); asm("fcall labe_aux_delay_8");
+#define AUX_DELAY_25     asm("fcall labe_aux_delay_20"); asm("fcall labe_aux_delay_5");
+#define AUX_DELAY_26     asm("fcall labe_aux_delay_20"); asm("fcall labe_aux_delay_6");
+#define AUX_DELAY_27     asm("fcall labe_aux_delay_20"); asm("fcall labe_aux_delay_7");
+#define AUX_DELAY_28     asm("fcall labe_aux_delay_20"); asm("fcall labe_aux_delay_8");
+//
+#define AUX_DELAY_32     asm("fcall labe_aux_delay_16"); asm("fcall labe_aux_delay_16");
+#define AUX_DELAY_36     asm("fcall labe_aux_delay_20"); asm("fcall labe_aux_delay_16");
+#define AUX_DELAY_40     asm("fcall labe_aux_delay_20"); asm("fcall labe_aux_delay_20");
+
+#define AUX_1CMD_DELAY_4 asm("fcall labe_aux_delay_4");
+#define AUX_1CMD_DELAY_5 asm("fcall labe_aux_delay_5");
+#define AUX_1CMD_DELAY_6 asm("fcall labe_aux_delay_6");
+#define AUX_1CMD_DELAY_7 asm("fcall labe_aux_delay_7");
+#define AUX_1CMD_DELAY_8 asm("fcall labe_aux_delay_8");
+#define AUX_1CMD_DELAY_12 asm("fcall labe_aux_delay_12");
+#define AUX_1CMD_DELAY_16 asm("fcall labe_aux_delay_16");
+#define AUX_1CMD_DELAY_20 asm("fcall labe_aux_delay_20");
+
+
+
 // manual params
 #define PROJ_TMR_PRESCALE (0b111) // x256
 
@@ -184,22 +244,36 @@ NOTES at the moment of first release (0.1.0.A) [to be updated later]:
 // TODO different configurations
 #endif
 
-#define PROJ_ADC_ADCS 0b010 // conversion time; 32 Tosc (8 tacts)
+#define PROJ_ADC_ADCS 0b000 // conversion time ~ 5.5 tacts
 
-
-GPIObits_t gp_shadow;
 
 uint8_t is_prev_cycle_pwr; // [0:1], if previous cycle applied pwr (limit wasn't reached in the beginning)
 
 uint8_t app_flags;
-#define PROJ_APP_FLAG_CYCLE_RETURN_TRAP 0
+#define PROJ_APP_FLAG_REDUCE_3_TO_2 1
 
 #define PROJ_TIMER_MULTIPLIER_AS_BIT 1 // multiplier is a degree of 2
 uint8_t timer_multiplier = (1 << PROJ_TIMER_MULTIPLIER_AS_BIT);
 
+// parameters for raw voltage measuring: temporary flow, to be updated (developed before finding the culprit of ADC issue)
+#define PROJ_ADC_ARRAY_SIZE 7
+#define PROJ_ADC_ARRAY_ADDR 32
+uint8_t adc_array[PROJ_ADC_ARRAY_SIZE] __at(0x0020);
+uint8_t adc_last_val;
+
 
 #define LOCATION__PIR1bits_TMR1IF "12,0"
 #define LOCATION__ADCVAL "30" // ADRESH reg
+#define LOCATION__FSR "4"
+#define LOCATION__INDF "0"
+
+// eeprom-related locations (NOTE: registers bank1)
+#define LOCATION__EEDATA "9Ah"
+#define LOCATION__EEADDR "9Bh"
+#define LOCATION__EECON1 "9Ch"
+#define LOCATION__EECON2 "9Dh"
+#define LOCATION__EECON1_WREN "9Ch,2"
+#define LOCATION__EECON1_WR "9Ch,1"
 
 
 #define PROJ_OUT_FET_PINS_POS_MASK ((1 << PROJ_BIT_NUM_OUT_PWM_0) | (1 << PROJ_BIT_NUM_OUT_PWM_1))
@@ -224,8 +298,7 @@ uint8_t timer_multiplier = (1 << PROJ_TIMER_MULTIPLIER_AS_BIT);
 // relies on active bank 0
 #define PROJ_SET_GPIO(a_value) \
     asm("movlw " AUX_STRINGIFY(a_value)); \
-    asm("movwf 5"); /* assign GPIO */ \
-    asm("movwf _gp_shadow"); /* refresh gp_shadow */
+    asm("movwf 5"); /* assign GPIO */
 #define PROJ_SET_GPIO_CAPON_PWMON PROJ_SET_GPIO(PROJ_STATE_GPIO_CAPON_PWMON)
 #define PROJ_SET_GPIO_CAPON_PWMOFF PROJ_SET_GPIO(PROJ_STATE_GPIO_CAPON_PWMOFF)
 #define PROJ_SET_GPIO_CAPOFF_PWMOFF PROJ_SET_GPIO(PROJ_STATE_GPIO_CAPOFF_PWMOFF)
@@ -251,35 +324,76 @@ uint8_t timer_multiplier = (1 << PROJ_TIMER_MULTIPLIER_AS_BIT);
     asm("btfsc 31,1"); /* while(ADCON0bits.GO_DONE) */ \
     asm("goto "lbl_name);
 
-// erases tmp_ctr and tmp_ctr2 vars
+// adjusts tmp_ctr, tmp_ctr2, adc_* vars, controls GPIO internally
 void fast_RunADC_8_rising() {
-    asm("movlw 5");
-    asm("movwf _tmp_ctr"); // tmp_ctr = 5
-    asm("clrf _tmp_ctr2"); // last result
-    asm("labe_fast_RunADC_8_rising__rising_cycle:");
+    PROJ_SET_GPIO_CAPON_PWMOFF
+    PROJ_SET_GPIO_CAPOFF_PWMOFF
+    asm("movlw " AUX_STRINGIFY(PROJ_ADC_ARRAY_ADDR - 1));
+    asm("movwf " LOCATION__FSR);
     PROJ_ADC_START()
-    PROJ_ADC_WAIT("labe_fast_RunADC_8_rising__wait")
-    // got result
-    asm("movf " LOCATION__ADCVAL ",w");
-    asm("addlw 254"); // w = adc - 2
-    asm("subwf _tmp_ctr2,w"); // w = prev_adc - (adc - 2) ;; trigger borrow flag
-    asm("skipnc"); // skip next if (borrow -> still rising)
-    asm("return");
-    // still rising
-    asm("decfsz _tmp_ctr");
-    asm("goto labe_fast_RunADC_8_rising__continue");
+    asm("movlw " AUX_STRINGIFY(PROJ_ADC_ARRAY_SIZE));
+    asm("movwf _tmp_ctr"); // max iterations by 2 samples
+    asm("clrf _tmp_ctr2"); // amount of equal values
+    asm("incf _tmp_ctr2"); // = 1
+    asm("clrf _adc_last_val");
+    asm("labe_fast_RunADC_8_rising__rising_cycle:");
+        asm("incf " LOCATION__FSR); // ++addr
+        asm("movf " LOCATION__ADCVAL ",w");
+        PROJ_ADC_START()
+        asm("movwf " LOCATION__INDF);
+        asm("xorwf _adc_last_val,f"); // compare
+        asm("movwf _adc_last_val"); // update last value / doesn't affect flags
+        asm("skipz");
+            asm("clrf _tmp_ctr2"); // clear amount of equal values if mismatch
+        asm("incf _tmp_ctr2"); // ++
+        asm("btfsc _tmp_ctr2,2"); // test if >= 4
+            asm("goto labe_fast_RunADC_8_rising__match_quit");
+        asm("movf " LOCATION__ADCVAL ",w");
+        PROJ_ADC_START()
+        asm("addwf " LOCATION__INDF ",f"); // form ...
+        asm("rrf " LOCATION__INDF ",f"); //   ...  avg
+        asm("xorwf _adc_last_val,f"); // compare
+        asm("movwf _adc_last_val"); // update last value / doesn't affect flags
+        asm("skipz");
+            asm("clrf _tmp_ctr2"); // clear amount of equal values if mismatch
+        asm("incf _tmp_ctr2"); // ++
+        asm("btfsc _tmp_ctr2,2"); // test if >= 4
+            asm("goto labe_fast_RunADC_8_rising__match_quit");
+        asm("decfsz _tmp_ctr");
+            asm("goto labe_fast_RunADC_8_rising__rising_cycle");
+
+    // timed-out, calculate avg of last 4 entries (8 samples)
+    PROJ_SET_GPIO_CAPON_PWMOFF // attach capacitor back
+        PROJ_ADC_START() // run adc several times now to adjust to normal state
+    asm("movf " LOCATION__INDF ",w"); // last val
+    asm("decf " LOCATION__FSR); // --addr
+    asm("addwf " LOCATION__INDF ",f"); // form ...
+    asm("rrf " LOCATION__INDF ",w"); //   ...  avg and store it in W
+    asm("movwf _tmp_ctr"); // tmp_ctr = avg of last 4 samples
+    asm("decf " LOCATION__FSR); // --addr
+        PROJ_ADC_START()
+    asm("movf " LOCATION__INDF ",w");
+    asm("decf " LOCATION__FSR); // --addr
+    asm("addwf " LOCATION__INDF ",f"); // form ...
+    asm("rrf " LOCATION__INDF ",w"); //   ...  avg and store it in W
+    asm("movwf _adc_last_val"); // adc_last_val = avg of pre last 4 samples
+    asm("movf _tmp_ctr,w");
+        PROJ_ADC_START()
+    asm("addwf _adc_last_val,f");
+    asm("rrf _adc_last_val,f"); // adc_last_val = avg of last 8 adc samples
     asm("return");
 
-    asm("labe_fast_RunADC_8_rising__continue:");
-    asm("movf " LOCATION__ADCVAL ",w"); // refresh last result (tmp_ctr2)
-    asm("movwf _tmp_ctr2");
-    asm("goto labe_fast_RunADC_8_rising__rising_cycle");
+    asm("labe_fast_RunADC_8_rising__match_quit:");
+        PROJ_SET_GPIO_CAPON_PWMOFF // attach capacitor back
+        PROJ_ADC_START() // run adc several times now to adjust to normal state
+        // TODO useful work while running adc one more time?
+        asm("return");
 }
 
 uint8_t fast_mul_8x8_res_h;
 uint8_t fast_mul_8x8_res_l;
 // multiplies w * PROJ_CONST_THR -> fast_mul_8x8_res_h:fast_mul_8x8_res_l
-//// TODO consider tabled search (with tilted curve at very low power percentage? this requires accurate voltage divider)
+//// TODO consider tabled search if have sufficient space (with tilted curve at very low power percentage? this requires accurate voltage divider)
 //// optimum voltage seems to be around ~80% even below 1% of nominal power range of a panel: TODO verify again
 void fast_mul_8x8() {
     asm("clrf _fast_mul_8x8_res_h");
@@ -351,529 +465,582 @@ void fast_mul_8x8() {
 }
 
 uint8_t last_raw_adc_val = 0;
-uint8_t pending_raw_adc_val;
 uint8_t thr_min;
 uint8_t thr_hi; // high level voltage threshold
 uint8_t pwr_level = 1; // active power level. 0,1 = disconnected; max,max+1 = straight open;
 uint8_t tmp_ctr; // temporary
 uint8_t tmp_ctr2; // temporary
 
-asm("global _aux_delay_generic");
-void aux_delay_generic() {
-    // 2(call) + ... + 2(return)
-    asm("labe_aux_delay_20:"); asm("fcall labe_aux_delay_4");
-    asm("labe_aux_delay_16:"); asm("fcall labe_aux_delay_4");
-    asm("labe_aux_delay_12:"); asm("fcall labe_aux_delay_4");
-    asm("labe_aux_delay_8:");  asm("fcall labe_aux_delay_4");
-    asm("return");
-    asm("labe_aux_delay_7:"); asm("nop");
-    asm("labe_aux_delay_6:"); asm("nop");
-    asm("labe_aux_delay_5:"); asm("nop");
-    asm("labe_aux_delay_4:");
-    // 'return' is auto-generated
-}
-#define AUX_DELAY_1 asm("nop");
-#define AUX_DELAY_2 asm("nop2"); // compiler knows what to do with nop2; apparently a jump to next command
-#define AUX_DELAY_3 asm("nop2"); asm("nop");
-
-#define AUX_DELAY_4 asm("fcall labe_aux_delay_4");
-#define AUX_DELAY_5 asm("fcall labe_aux_delay_5");
-#define AUX_DELAY_6 asm("fcall labe_aux_delay_6");
-#define AUX_DELAY_7 asm("fcall labe_aux_delay_7");
-#define AUX_DELAY_8 asm("fcall labe_aux_delay_8");
-#define AUX_DELAY_9      asm("fcall labe_aux_delay_4"); asm("fcall labe_aux_delay_5");
-#define AUX_DELAY_10     asm("fcall labe_aux_delay_4"); asm("fcall labe_aux_delay_6");
-#define AUX_DELAY_11     asm("fcall labe_aux_delay_4"); asm("fcall labe_aux_delay_7");
-#define AUX_DELAY_12 asm("fcall labe_aux_delay_12");
-#define AUX_DELAY_13     asm("fcall labe_aux_delay_8"); asm("fcall labe_aux_delay_5");
-#define AUX_DELAY_14     asm("fcall labe_aux_delay_8"); asm("fcall labe_aux_delay_6");
-#define AUX_DELAY_15     asm("fcall labe_aux_delay_8"); asm("fcall labe_aux_delay_7");
-#define AUX_DELAY_16 asm("fcall labe_aux_delay_16");
-#define AUX_DELAY_17     asm("fcall labe_aux_delay_12"); asm("fcall labe_aux_delay_5");
-#define AUX_DELAY_18     asm("fcall labe_aux_delay_12"); asm("fcall labe_aux_delay_6");
-#define AUX_DELAY_19     asm("fcall labe_aux_delay_12"); asm("fcall labe_aux_delay_7");
-#define AUX_DELAY_20     asm("fcall labe_aux_delay_12"); asm("fcall labe_aux_delay_8");
-#define AUX_DELAY_21     asm("fcall labe_aux_delay_16"); asm("fcall labe_aux_delay_5");
-#define AUX_DELAY_22     asm("fcall labe_aux_delay_16"); asm("fcall labe_aux_delay_6");
-#define AUX_DELAY_23     asm("fcall labe_aux_delay_16"); asm("fcall labe_aux_delay_7");
-#define AUX_DELAY_24     asm("fcall labe_aux_delay_16"); asm("fcall labe_aux_delay_8");
-#define AUX_DELAY_25     asm("fcall labe_aux_delay_20"); asm("fcall labe_aux_delay_5");
-#define AUX_DELAY_26     asm("fcall labe_aux_delay_20"); asm("fcall labe_aux_delay_6");
-#define AUX_DELAY_27     asm("fcall labe_aux_delay_20"); asm("fcall labe_aux_delay_7");
-#define AUX_DELAY_28     asm("fcall labe_aux_delay_20"); asm("fcall labe_aux_delay_8");
-
-#define AUX_DELAY_32     asm("fcall labe_aux_delay_16"); asm("fcall labe_aux_delay_16");
-#define AUX_DELAY_36     asm("fcall labe_aux_delay_20"); asm("fcall labe_aux_delay_16");
-#define AUX_DELAY_40     asm("fcall labe_aux_delay_20"); asm("fcall labe_aux_delay_20");
-
-
 
 #define PROJ_TEST_LIMIT_RETURN_2_TACTS \
     PROJ_SKIP_IF_LIMIT_NOTREACHED \
-    asm("return");
+    asm("retlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMOFF));
 
-void apply_pwr_level() __at(0x0040)
+#define PROJ_DEFINE_BLOCK_2V3_NO_PRECHECK(lbl_part_name) \
+    asm("labe_apply_pwr_level__" lbl_part_name ":"); asm("movlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMON)); \
+        asm("movwf 5"); \
+        asm("movlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMOFF)); \
+        asm("movwf 5");
+
+#define PROJ_DEFINE_BLOCK_2V3(lbl_part_name) \
+    asm("labe_apply_pwr_level__" lbl_part_name "__precheck:"); PROJ_SKIP_IF_LIMIT_REACHED \
+    PROJ_DEFINE_BLOCK_2V3_NO_PRECHECK(lbl_part_name)
+
+
+
+#define PROJ_DEFINE_BLOCK_3V3_NO_PRECHECK(lbl_part_name) \
+    asm("labe_apply_pwr_level__" lbl_part_name ":"); asm("movlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMON)); \
+        asm("movwf 5"); \
+        AUX_DELAY_1 \
+        asm("movlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMOFF)); \
+        asm("movwf 5");
+
+#define PROJ_DEFINE_BLOCK_3V3(lbl_part_name) \
+    asm("labe_apply_pwr_level__" lbl_part_name "__precheck:"); PROJ_SKIP_IF_LIMIT_REACHED \
+    PROJ_DEFINE_BLOCK_3V3_NO_PRECHECK(lbl_part_name)
+
+#define PROJ_1CMD_SET_REDUCE_3_TO_2() asm("bcf _app_flags," AUX_STRINGIFY(PROJ_APP_FLAG_REDUCE_3_TO_2));
+
+
+
+#define PROJ_DEFINE_BLOCK_4V4_NO_PRECHECK(lbl_part_name) \
+    asm("labe_apply_pwr_level__" lbl_part_name ":"); asm("movlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMON)); \
+        asm("movwf 5"); /* = 1 */ \
+        AUX_DELAY_2 \
+        asm("movlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMOFF)); \
+        asm("movwf 5"); /* = 0 */ \
+        AUX_DELAY_1
+
+#define PROJ_DEFINE_BLOCK_4V4(lbl_part_name) \
+    asm("labe_apply_pwr_level__" lbl_part_name "__precheck:"); PROJ_SKIP_IF_LIMIT_REACHED \
+    PROJ_DEFINE_BLOCK_4V4_NO_PRECHECK(lbl_part_name)
+
+
+
+#define PROJ_DEFINE_BLOCK_COMBO_34(part1, part2) \
+    asm("labe_apply_pwr_level__" part1 "__" part2 ":"); \
+        asm("fcall labe_apply_pwr_level__" part1); \
+        asm("movwf 5"); \
+        asm("goto labe_apply_pwr_level__" part2 "__precheck");
+
+#define PROJ_DEFINE_BLOCK_COMBO_45(part1, num2) \
+    asm("labe_apply_pwr_level__" part1 "__d5v4_c" AUX_STRINGIFY(num2) ":"); \
+        asm("fcall labe_apply_pwr_level__" part1); \
+        asm("movwf 5"); \
+        PROJ_TEST_LIMIT_RETURN_2_TACTS \
+        asm("movlw " AUX_STRINGIFY(num2 - 1)); \
+        asm("movwf _tmp_ctr"); \
+        asm("movlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMON)); \
+        asm("movwf 5"); \
+        asm("goto labe_apply_pwr_level__d5v4_generic_enter");
+
+#define PROJ_DEFINE_BLOCK_COMBO_56(num1, num2) \
+    asm("labe_apply_pwr_level__d5v4_c" AUX_STRINGIFY(num1) "__d6v4_c" AUX_STRINGIFY(num2) ":"); \
+        asm("movlw " AUX_STRINGIFY(num1 - 1)); \
+        asm("movwf _tmp_ctr"); \
+        asm("movlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMON)); \
+        asm("movwf 5"); \
+        asm("fcall labe_apply_pwr_level__d5v4_generic_enter"); \
+        asm("movwf 5"); \
+        PROJ_TEST_LIMIT_RETURN_2_TACTS \
+        asm("movlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMON)); \
+        asm("movwf 5"); \
+        asm("movlw " AUX_STRINGIFY(num2 - 1)); \
+        asm("goto labe_apply_pwr_level__d6v4_generic_enter_minus1");
+
+#define PROJ_DEFINE_BLOCK_COMBO_67(num1, num2) \
+    asm("labe_apply_pwr_level__d6v4_c" AUX_STRINGIFY(num1) "__d7v4_c" AUX_STRINGIFY(num2) ":"); \
+        asm("movlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMON)); \
+        asm("movwf 5"); \
+        asm("movlw " AUX_STRINGIFY(num1 - 1)); \
+        asm("fcall labe_apply_pwr_level__d6v4_generic_enter_minus1"); \
+        asm("movwf 5"); \
+        PROJ_TEST_LIMIT_RETURN_2_TACTS \
+        asm("movlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMON)); \
+        asm("movwf 5"); \
+        asm("movlw " AUX_STRINGIFY(num2 - 1)); \
+        asm("goto labe_apply_pwr_level__d7v4_generic_enter_minus1");
+
+#define PROJ_DEFINE_BLOCK_COMBO_78(num1, num2) \
+    asm("labe_apply_pwr_level__d7v4_c" AUX_STRINGIFY(num1) "__d8v4_c" AUX_STRINGIFY(num2) ":"); \
+        asm("movlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMON)); \
+        asm("movwf 5"); \
+        asm("movlw " AUX_STRINGIFY(num1 - 1)); \
+        asm("fcall labe_apply_pwr_level__d7v4_generic_enter_minus1"); \
+        asm("movwf 5"); \
+        PROJ_TEST_LIMIT_RETURN_2_TACTS \
+        asm("movlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMON)); \
+        asm("movwf 5"); \
+        asm("movlw " AUX_STRINGIFY(num2 - 1)); \
+        asm("goto labe_apply_pwr_level__d8v4_generic_enter_minus1");
+
+#define PROJ_DEFINE_BLOCK_COMBO_89(num1, num2) \
+    asm("labe_apply_pwr_level__d8v4_c" AUX_STRINGIFY(num1) "__d9v4_c" AUX_STRINGIFY(num2) ":"); \
+        asm("movlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMON)); \
+        asm("movwf 5"); \
+        asm("movlw " AUX_STRINGIFY(num1 - 1)); \
+        asm("fcall labe_apply_pwr_level__d8v4_generic_enter_minus1"); \
+        asm("movwf 5"); \
+        PROJ_TEST_LIMIT_RETURN_2_TACTS \
+        asm("movlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMON)); \
+        asm("movwf 5"); \
+        asm("movlw " AUX_STRINGIFY(num2 - 1)); \
+        asm("goto labe_apply_pwr_level__d9v4_generic_enter_minus1");
+
+#define PROJ_DEFINE_BLOCK_COMBO_910(num1, num2) \
+    asm("labe_apply_pwr_level__d9v4_c" AUX_STRINGIFY(num1) "__d10v4_c" AUX_STRINGIFY(num2) ":"); \
+        asm("movlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMON)); \
+        asm("movwf 5"); \
+        asm("movlw " AUX_STRINGIFY(num1 - 1)); \
+        asm("fcall labe_apply_pwr_level__d9v4_generic_enter_minus1"); \
+        asm("movwf 5"); \
+        PROJ_TEST_LIMIT_RETURN_2_TACTS \
+        asm("movlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMON)); \
+        asm("movwf 5"); \
+        asm("movlw " AUX_STRINGIFY(num2 - 1)); \
+        asm("goto labe_apply_pwr_level__d10v4_generic_enter_minus1");
+
+#define PROJ_DEFINE_BLOCK_COMBO_1011(num1, num2) \
+    asm("labe_apply_pwr_level__d10v4_c" AUX_STRINGIFY(num1) "__d11v4_c" AUX_STRINGIFY(num2) ":"); \
+        asm("movlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMON)); \
+        asm("movwf 5"); \
+        asm("movlw " AUX_STRINGIFY(num1 - 1)); \
+        asm("fcall labe_apply_pwr_level__d10v4_generic_enter_minus1"); \
+        asm("movwf 5"); \
+        PROJ_TEST_LIMIT_RETURN_2_TACTS \
+        asm("movlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMON)); \
+        asm("movwf 5"); \
+        asm("movlw " AUX_STRINGIFY(num2 - 1)); \
+        asm("goto labe_apply_pwr_level__d11v4_generic_enter_minus1");
+
+
+
+#define PROJ_SPECIAL_MODE_SINGULAR_NOPS_FOR_30 \
+    asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); \
+    asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); \
+    asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); \
+    asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); \
+    asm("nop"); asm("nop"); asm("nop"); asm("nop"); asm("nop"); \
+    asm("nop"); asm("nop"); asm("nop"); asm("nop");
+
+#define PROJ_SPECIAL_MODE_NUM_LEVELS 30
+#define PROJ_SPECIAL_MODE_PWR_LEVEL_START 61
+#define PROJ_SPECIAL_MODE_PWR_LEVEL_END_INCLUDING (PROJ_SPECIAL_MODE_PWR_LEVEL_START + PROJ_SPECIAL_MODE_NUM_LEVELS)
+#define PROJ_SPECIAL_MODE_CALC_MAGIC asm("sublw " AUX_STRINGIFY(PROJ_SPECIAL_MODE_PWR_LEVEL_END_INCLUDING-1));
+
+asm("global _apply_pwr_level__storage1");
+void apply_pwr_level__storage1() __at(0x0008)
 {
+    asm("labe_apply_pwr_level__special_mode_enter:");
+        asm("movlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMON));
+        asm("movwf 5"); // = 1
+            PROJ_TEST_LIMIT_RETURN_2_TACTS // may be triggered as loop doesn't assume post check; // delayed by 2(+2)
+            asm("movf _pwr_level,w"); // delayed by 3(+2)
+            PROJ_SPECIAL_MODE_CALC_MAGIC // delayed by 4(+2)
+            asm("addwf 2,f"); // PCL += offset: calculated delay with nops;  // delayed by 5(+2)
+            PROJ_SPECIAL_MODE_SINGULAR_NOPS_FOR_30
+            // delayed by 5(+2)+x; ON length = [7..37)
+            PROJ_ADC_START() // delayed by 6(+2)+x; ON length = [8..38)
+            AUX_DELAY_3 // balancing + align; // delayed by 9(+2)+x; ON length = [11..41)
+        asm("movlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMOFF));
+        asm("movwf 5"); // = 0
+        PROJ_TEST_LIMIT_RETURN_2_TACTS
+        asm("btfsc " LOCATION__PIR1bits_TMR1IF);
+            asm("retlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMOFF));
+            asm("movlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMON));
+            asm("movwf 5"); // = 1; delayed by 6 (OFF -> ON)
+                asm("movf _pwr_level,w"); // delayed by 1(+2)
+                PROJ_SPECIAL_MODE_CALC_MAGIC // delayed by 2(+2)
+                asm("addwf 2,f"); // PCL += offset: calculated delay with nops;  // delayed by 3(+2)
+                    PROJ_SPECIAL_MODE_SINGULAR_NOPS_FOR_30
+                    // delayed by 3(+2)+x; ON length = [5..35)
+                // adjust pwr level up or down
+                asm("incf _pwr_level,f"); // pre-increment (will either stay incremented...)
+                asm("movf _thr_hi,w"); // w = thr_hi
+                asm("subwf " LOCATION__ADCVAL ",w"); // w = adcval - thr_hi
+                asm("movlw 2"); // doesn't affect status
+                asm("skipc"); // c == no borrow
+                asm("subwf _pwr_level,f"); // pwr_level = pwr_level - w(2) (...or will be decremented)
+                // delayed by 9(+2)+x; ON length = [11..41)
+            asm("movlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMOFF)); // prepare W before looping
+            // fallthrough
+    asm("movwf 5");
+    // external entry point ----------------------------------------------------
+    asm("labe_apply_pwr_level__enter:");
     // asm("bcf 3,5"); // ensure bank0 selected
     asm("movf _pwr_level,w");
     asm("addwf 2,f"); // PCL += pwr_level: tabled jump
 
-    // TODO OPT MIGHT take advantage of jump to offset*2 to avoid intermediate jumps in some cases
-
-    asm("goto labe_apply_pwr_level__pre_zero"); // 0 *
-    asm("goto labe_apply_pwr_level__zero"); // 1
-    asm("goto labe_apply_pwr_level__d2_c1"); // 2
-    asm("goto labe_apply_pwr_level__d2_c2_long"); // 3
-    asm("goto labe_apply_pwr_level__d2_c2_short"); // 4
-    asm("goto labe_apply_pwr_level__d3_c1"); // 5
-    asm("goto labe_apply_pwr_level__d2c1__d3c1"); // 6
-    asm("goto labe_apply_pwr_level__d3c1__d3c1"); // 7
-    asm("goto labe_apply_pwr_level__d3_c2"); // 8
-    asm("goto labe_apply_pwr_level__d3_c3"); // 9
-    asm("goto labe_apply_pwr_level__d3_c4"); // 10
-    asm("goto labe_apply_pwr_level__d3_c5"); // 11
-    asm("goto labe_apply_pwr_level__d3_c7"); // 12
-    asm("goto labe_apply_pwr_level__d3_c9"); // 13
-    asm("goto labe_apply_pwr_level__d3_c12"); // 14
-    asm("goto labe_apply_pwr_level__d3_c15"); // 15
-    asm("goto labe_apply_pwr_level__d3_c19"); // 16
-    asm("goto labe_apply_pwr_level__d3_c24"); // 17
-    asm("goto labe_apply_pwr_level__d4_c18"); // 18
-    asm("goto labe_apply_pwr_level__d5_c15"); // 19
-    asm("goto labe_apply_pwr_level__d6_c12"); // 20
-    asm("goto labe_apply_pwr_level__d7_c10"); // 21
-    asm("goto labe_apply_pwr_level__d9_c8"); // 22
-    asm("goto labe_apply_pwr_level__d12_c6"); // 23
-    asm("goto labe_apply_pwr_level__d15_c5"); // 24
-    asm("goto labe_apply_pwr_level__d18_c4"); // 25
-    asm("goto labe_apply_pwr_level__d21_c3"); // 26
-    asm("goto labe_apply_pwr_level__max"); // 27
-    asm("goto labe_apply_pwr_level__post_max"); // 28 max+1 *
-    // end table
-    // ----- 0
-    asm("labe_apply_pwr_level__pre_zero:");
-    asm("incf _pwr_level,f"); // edge handling
-    asm("labe_apply_pwr_level__zero:");
-        PROJ_SET_GPIO_CAPON_PWMOFF
-        asm("return");
-
-    // TODO handle PROJ_BIT_NUM_IN_INV_LIMIT as much as possible
+    // table
+    asm("incf _pwr_level,f"); // 0 * edge handling
+    asm("retlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMOFF)); // min (0 pwm)
+    //
+    asm("goto labe_apply_pwr_level__d2");
+    asm("goto labe_apply_pwr_level__d2d2__wait8");
+    asm("goto labe_apply_pwr_level__d2d2");
+    asm("goto labe_apply_pwr_level__d3");
+    asm("goto labe_apply_pwr_level__d2d3");
+    asm("goto labe_apply_pwr_level__d2d2d3");
+    asm("goto labe_apply_pwr_level__d3v3_c2");
+    PROJ_1CMD_SET_REDUCE_3_TO_2()
+    asm("goto labe_apply_pwr_level__d3v3_c3");
+    PROJ_1CMD_SET_REDUCE_3_TO_2()
+    asm("goto labe_apply_pwr_level__d3v3_c4");
+    PROJ_1CMD_SET_REDUCE_3_TO_2()
+    asm("goto labe_apply_pwr_level__d3v3_c5");
+    PROJ_1CMD_SET_REDUCE_3_TO_2()
+    asm("goto labe_apply_pwr_level__d3v3_c6");
+    PROJ_1CMD_SET_REDUCE_3_TO_2()
+    asm("goto labe_apply_pwr_level__d3v3_c7");
+    PROJ_1CMD_SET_REDUCE_3_TO_2()
+    asm("goto labe_apply_pwr_level__d3v3_c8");
+    PROJ_1CMD_SET_REDUCE_3_TO_2()
+    asm("goto labe_apply_pwr_level__d3v3_c9");
+    PROJ_1CMD_SET_REDUCE_3_TO_2()
+    asm("goto labe_apply_pwr_level__d3v3_c10");
+    asm("goto labe_apply_pwr_level__d3v3_c9__d4v4_c1"); // 3-4
+    asm("goto labe_apply_pwr_level__d3v3_c8__d4v4_c2"); // 3-4
+    asm("goto labe_apply_pwr_level__d3v3_c7__d4v4_c3"); // 3-4
+    asm("goto labe_apply_pwr_level__d3v3_c6__d4v4_c4"); // 3-4
+    asm("goto labe_apply_pwr_level__d3v3_c5__d4v4_c5"); // 3-4
+    asm("goto labe_apply_pwr_level__d3v3_c4__d4v4_c6"); // 3-4
+    asm("goto labe_apply_pwr_level__d3v3_c3__d4v4_c7"); // 3-4
+    asm("goto labe_apply_pwr_level__d3v3_c2__d4v4_c8"); // 3-4
+    asm("goto labe_apply_pwr_level__d3v3_c1__d4v4_c9"); // 3-4
+    asm("goto labe_apply_pwr_level__d4v4_c10");
+    asm("goto labe_apply_pwr_level__d4v4_c8__d5v4_c2"); // 4-5
+    asm("goto labe_apply_pwr_level__d4v4_c6__d5v4_c4"); // 4-5
+    asm("goto labe_apply_pwr_level__d4v4_c4__d5v4_c6"); // 4-5
+    asm("goto labe_apply_pwr_level__d4v4_c2__d5v4_c8"); // 4-5
+    asm("goto labe_apply_pwr_level__d5v4_c10");
+    asm("goto labe_apply_pwr_level__d5v4_c8__d6v4_c2"); // 5-6
+    asm("goto labe_apply_pwr_level__d5v4_c6__d6v4_c4"); // 5-6
+    asm("goto labe_apply_pwr_level__d5v4_c4__d6v4_c6"); // 5-6
+    asm("goto labe_apply_pwr_level__d5v4_c2__d6v4_c8"); // 5-6
+    asm("goto labe_apply_pwr_level__d6v4_c10");
+    asm("goto labe_apply_pwr_level__d6v4_c8__d7v4_c2"); // 6-7
+    asm("goto labe_apply_pwr_level__d6v4_c6__d7v4_c4"); // 6-7
+    asm("goto labe_apply_pwr_level__d6v4_c4__d7v4_c6"); // 6-7
+    asm("goto labe_apply_pwr_level__d6v4_c2__d7v4_c8"); // 6-7
+    asm("goto labe_apply_pwr_level__d7v4_c10");
+    asm("goto labe_apply_pwr_level__d7v4_c8__d8v4_c2"); // 7-8
+    asm("goto labe_apply_pwr_level__d7v4_c5__d8v4_c5"); // 7-8
+    asm("goto labe_apply_pwr_level__d7v4_c2__d8v4_c8"); // 7-8
+    asm("goto labe_apply_pwr_level__d8v4_c10");
+    asm("goto labe_apply_pwr_level__d8v4_c7__d9v4_c3"); // 8-9
+    asm("goto labe_apply_pwr_level__d8v4_c3__d9v4_c7"); // 8-9
+    asm("goto labe_apply_pwr_level__d9v4_c10");
+    asm("goto labe_apply_pwr_level__d9v4_c5__d10v4_c5"); // 9-10
+    asm("goto labe_apply_pwr_level__d10v4_c10");
+    asm("goto labe_apply_pwr_level__d10v4_c5__d11v4_c5"); // 10-11
+    asm("goto labe_apply_pwr_level__d11v4_c10");
+    //
+    asm("goto labe_apply_pwr_level__special_mode_enter"); // x1
+    asm("goto labe_apply_pwr_level__special_mode_enter"); // x2
+    asm("goto labe_apply_pwr_level__special_mode_enter"); // x3
+    asm("goto labe_apply_pwr_level__special_mode_enter"); // x4
+    asm("goto labe_apply_pwr_level__special_mode_enter"); // x5
+    asm("goto labe_apply_pwr_level__special_mode_enter"); // x6
+    asm("goto labe_apply_pwr_level__special_mode_enter"); // x7
+    asm("goto labe_apply_pwr_level__special_mode_enter"); // x8
+    asm("goto labe_apply_pwr_level__special_mode_enter"); // x9
+    asm("goto labe_apply_pwr_level__special_mode_enter"); // x10
+    asm("goto labe_apply_pwr_level__special_mode_enter"); // x11
+    asm("goto labe_apply_pwr_level__special_mode_enter"); // x12
+    asm("goto labe_apply_pwr_level__special_mode_enter"); // x13
+    asm("goto labe_apply_pwr_level__special_mode_enter"); // x14
+    asm("goto labe_apply_pwr_level__special_mode_enter"); // x15
+    asm("goto labe_apply_pwr_level__special_mode_enter"); // x16
+    asm("goto labe_apply_pwr_level__special_mode_enter"); // x17
+    asm("goto labe_apply_pwr_level__special_mode_enter"); // x18
+    asm("goto labe_apply_pwr_level__special_mode_enter"); // x19
+    asm("goto labe_apply_pwr_level__special_mode_enter"); // x20
+    asm("goto labe_apply_pwr_level__special_mode_enter"); // x21
+    asm("goto labe_apply_pwr_level__special_mode_enter"); // x22
+    asm("goto labe_apply_pwr_level__special_mode_enter"); // x23
+    asm("goto labe_apply_pwr_level__special_mode_enter"); // x24
+    asm("goto labe_apply_pwr_level__special_mode_enter"); // x25
+    asm("goto labe_apply_pwr_level__special_mode_enter"); // x26
+    asm("goto labe_apply_pwr_level__special_mode_enter"); // x27
+    asm("goto labe_apply_pwr_level__special_mode_enter"); // x28
+    asm("goto labe_apply_pwr_level__special_mode_enter"); // x29
+    asm("goto labe_apply_pwr_level__special_mode_enter"); // x PROJ_SPECIAL_MODE_NUM_LEVELS
+    //
+    asm("retlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMON)); // max
+    // end table             max+1 * edge handling
+    asm("decf _pwr_level,f");
+    asm("retlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMON));
 
     // ----- duration 2
-    asm("labe_apply_pwr_level__d2_c1:");
-        asm("movf _gp_shadow,w"); // relying on getting here only when current PWM state=0
-        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-        asm("movwf 5"); /* assign GPIO: output = 1 */
-        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-        asm("movwf 5"); /* assign GPIO: output = 0 */
-        asm("return");
-
-    asm("labe_apply_pwr_level__d2_c2_long:");
-        asm("movf _gp_shadow,w"); // relying on getting here only when current PWM state=0
-        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-        asm("movwf 5"); /* assign GPIO: output = 1 */
-        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-        asm("movwf 5"); /* assign GPIO: output = 0 */
+    asm("labe_apply_pwr_level__d2d2__wait8:");
         AUX_DELAY_8
+    PROJ_DEFINE_BLOCK_2V3_NO_PRECHECK("d2d2")
+    PROJ_DEFINE_BLOCK_2V3("d2")
+    asm("retlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMOFF));
+
+    // ----- durations 2+3 (mixed)
+    PROJ_DEFINE_BLOCK_2V3_NO_PRECHECK("d2d2d3")
+    PROJ_DEFINE_BLOCK_2V3("d2d3")
+    PROJ_SKIP_IF_LIMIT_REACHED
+    asm("labe_apply_pwr_level__d3:"); asm("movlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMON));
+        asm("movwf 5");
+        asm("retlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMOFF));
+
+
+    PROJ_DEFINE_BLOCK_COMBO_34("d3v3_c9", "d4v4_c1")
+    PROJ_DEFINE_BLOCK_COMBO_34("d3v3_c8", "d4v4_c2")
+    PROJ_DEFINE_BLOCK_COMBO_34("d3v3_c7", "d4v4_c3")
+    PROJ_DEFINE_BLOCK_COMBO_34("d3v3_c6", "d4v4_c4")
+    PROJ_DEFINE_BLOCK_COMBO_34("d3v3_c5", "d4v4_c5")
+    PROJ_DEFINE_BLOCK_COMBO_34("d3v3_c4", "d4v4_c6")
+    PROJ_DEFINE_BLOCK_COMBO_34("d3v3_c3", "d4v4_c7")
+    PROJ_DEFINE_BLOCK_COMBO_34("d3v3_c2", "d4v4_c8")
+    PROJ_DEFINE_BLOCK_COMBO_34("d3v3_c1", "d4v4_c9")
+
+    PROJ_DEFINE_BLOCK_COMBO_45("d4v4_c8", 2)
+    PROJ_DEFINE_BLOCK_COMBO_45("d4v4_c6", 4)
+    PROJ_DEFINE_BLOCK_COMBO_45("d4v4_c4", 6)
+    PROJ_DEFINE_BLOCK_COMBO_45("d4v4_c2", 8)
+
+    asm("labe_apply_pwr_level__d5v4_c10:");
+        asm("movlw " AUX_STRINGIFY(10 - 1));
+        asm("movwf _tmp_ctr");
+        asm("movlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMON));
+        asm("movwf 5");
+        asm("goto labe_apply_pwr_level__d5v4_generic_enter");
+
+    PROJ_DEFINE_BLOCK_COMBO_56(8, 2)
+    PROJ_DEFINE_BLOCK_COMBO_56(6, 4)
+    PROJ_DEFINE_BLOCK_COMBO_56(4, 6)
+    PROJ_DEFINE_BLOCK_COMBO_56(2, 8)
+
+    asm("labe_apply_pwr_level__d6v4_c10:");
+        asm("movlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMON));
+        asm("movwf 5");
+        asm("movlw " AUX_STRINGIFY(10 - 1));
+        asm("goto labe_apply_pwr_level__d6v4_generic_enter_minus1");
+
+    PROJ_DEFINE_BLOCK_COMBO_67(8, 2)
+    PROJ_DEFINE_BLOCK_COMBO_67(6, 4)
+    PROJ_DEFINE_BLOCK_COMBO_67(4, 6)
+    PROJ_DEFINE_BLOCK_COMBO_67(2, 8)
+
+    asm("labe_apply_pwr_level__d7v4_c10:");
+        asm("movlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMON));
+        asm("movwf 5");
+        asm("movlw " AUX_STRINGIFY(10 - 1));
+        asm("goto labe_apply_pwr_level__d7v4_generic_enter_minus1");
+
+    PROJ_DEFINE_BLOCK_COMBO_78(8, 2)
+    PROJ_DEFINE_BLOCK_COMBO_78(5, 5)
+    PROJ_DEFINE_BLOCK_COMBO_78(2, 8)
+
+    asm("labe_apply_pwr_level__d8v4_c10:");
+        asm("movlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMON));
+        asm("movwf 5");
+        asm("movlw " AUX_STRINGIFY(10 - 1));
+        asm("goto labe_apply_pwr_level__d8v4_generic_enter_minus1");
+
+    PROJ_DEFINE_BLOCK_COMBO_89(7, 3)
+    PROJ_DEFINE_BLOCK_COMBO_89(3, 7)
+
+    asm("labe_apply_pwr_level__d9v4_c10:");
+        asm("movlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMON));
+        asm("movwf 5");
+        asm("movlw " AUX_STRINGIFY(10 - 1));
+        asm("goto labe_apply_pwr_level__d9v4_generic_enter_minus1");
+
+    PROJ_DEFINE_BLOCK_COMBO_910(5, 5)
+
+    asm("labe_apply_pwr_level__d10v4_c10:");
+        asm("movlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMON));
+        asm("movwf 5");
+        asm("movlw " AUX_STRINGIFY(10 - 1));
+        asm("goto labe_apply_pwr_level__d10v4_generic_enter_minus1");
+
+    PROJ_DEFINE_BLOCK_COMBO_1011(5, 5)
+
+    asm("labe_apply_pwr_level__d11v4_c10:");
+        asm("movlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMON));
+        asm("movwf 5");
+        asm("movlw " AUX_STRINGIFY(10 - 1));
+        asm("goto labe_apply_pwr_level__d11v4_generic_enter_minus1");
+
+
+    // ----- duration 3: (3/3)
+    PROJ_DEFINE_BLOCK_3V3_NO_PRECHECK("d3v3_c10")
+    PROJ_DEFINE_BLOCK_3V3("d3v3_c9")
+    PROJ_DEFINE_BLOCK_3V3("d3v3_c8")
+    PROJ_DEFINE_BLOCK_3V3("d3v3_c7")
+    PROJ_DEFINE_BLOCK_3V3("d3v3_c6")
+    PROJ_DEFINE_BLOCK_3V3("d3v3_c5")
+    PROJ_DEFINE_BLOCK_3V3("d3v3_c4")
+    asm("labe_apply_pwr_level__d3v3_c3__precheck:"); PROJ_SKIP_IF_LIMIT_REACHED
+    asm("labe_apply_pwr_level__d3v3_c3:"); asm("movlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMON));
+        asm("btfss _app_flags," AUX_STRINGIFY(PROJ_APP_FLAG_REDUCE_3_TO_2));
+        asm("movwf 5"); // triggered since here if chosen length is 3; d3d3d3 sequence
+        asm("movwf 5"); // triggered since here if chosen length is 2; d2d3d3 sequence
+        asm("movlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMOFF));
+        asm("movwf 5");
+    asm("labe_apply_pwr_level__d3v3_c2__precheck:"); PROJ_SKIP_IF_LIMIT_REACHED
+    asm("labe_apply_pwr_level__d3v3_c2:"); asm("movlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMON));
+        asm("movwf 5");
+        asm("bcf _app_flags," AUX_STRINGIFY(PROJ_APP_FLAG_REDUCE_3_TO_2)); // clear flag
+        asm("movlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMOFF));
+        asm("movwf 5");
+    asm("labe_apply_pwr_level__d3v3_c1__precheck:"); PROJ_SKIP_IF_LIMIT_REACHED
+    asm("labe_apply_pwr_level__d3v3_c1:"); asm("movlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMON));
+        asm("movwf 5");
+        asm("retlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMOFF));
+
+
+    // ----- duration 4: 4/4 with dense limiting
+    PROJ_DEFINE_BLOCK_4V4_NO_PRECHECK("d4v4_c10")
+    PROJ_DEFINE_BLOCK_4V4("d4v4_c9")
+    PROJ_DEFINE_BLOCK_4V4("d4v4_c8")
+    PROJ_DEFINE_BLOCK_4V4("d4v4_c7")
+    PROJ_DEFINE_BLOCK_4V4("d4v4_c6")
+    PROJ_DEFINE_BLOCK_4V4("d4v4_c5")
+    PROJ_DEFINE_BLOCK_4V4("d4v4_c4")
+    PROJ_DEFINE_BLOCK_4V4("d4v4_c3")
+    PROJ_DEFINE_BLOCK_4V4("d4v4_c2")
+    asm("labe_apply_pwr_level__d4v4_c1__precheck:"); PROJ_SKIP_IF_LIMIT_REACHED
+    asm("labe_apply_pwr_level__d4v4_c1:"); asm("movlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMON));
+        asm("movwf 5");
+        asm("movlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMOFF));
+        asm("return"); // W is post-applied after call
+
+
+    //asm("movlw " AUX_STRINGIFY(n_cycle_iters_minus_1));
+    //asm("movwf _tmp_ctr");
+    //asm("movlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMON));
+    //asm("movwf 5"); // = 1
+    //asm("goto labe_apply_pwr_level__d5v4_generic_enter"); // 1's delay +2
+    asm("labe_apply_pwr_level__d5v4_generic_enter:");
+        AUX_DELAY_1 // 1's delay +3
+        asm("labe_apply_pwr_level__d5v4_generic_pre0:"); asm("movlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMOFF)); // 1's delay +4
+        asm("movwf 5"); // = 0
         PROJ_TEST_LIMIT_RETURN_2_TACTS
-        // TODO SIZE: can reduce delay and just jump to labe_apply_pwr_level__d2_c1
-        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-        asm("movwf 5"); /* assign GPIO: output = 1 */
-        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-        asm("movwf 5"); /* assign GPIO: output = 0 */
-        asm("return");
+        asm("movlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMON)); // 0's delay +3
+        asm("movwf 5"); // = 1 (if not reached limit)
+        asm("decfsz _tmp_ctr"); // delay (+2 if quit / +3 if repeat)
+        asm("goto labe_apply_pwr_level__d5v4_generic_pre0"); // reenters with delay +3
+            asm("retlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMOFF)); // 1's delay +4
 
-    asm("labe_apply_pwr_level__d2_c2_short:");
-        asm("movf _gp_shadow,w"); // relying on getting here only when current PWM state=0
-        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-        asm("movwf 5"); /* assign GPIO: output = 1 */
-        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-        asm("movwf 5"); /* assign GPIO: output = 0 */
-        AUX_DELAY_2
+    //asm("movlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMON));
+    //asm("movwf 5"); // = 1
+    //asm("movlw " AUX_STRINGIFY(n_cycle_iters_minus_1)); // 1's delay +1
+    //asm("goto labe_apply_pwr_level__d6v4_generic_enter_minus1"); // 1's delay +3
+    asm("labe_apply_pwr_level__d6v4_generic_enter_minus1:");
+        asm("movwf _tmp_ctr"); // 1's delay +4
+        asm("labe_apply_pwr_level__d6v4_generic_pre0:"); asm("movlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMOFF)); // delay +5
+        asm("movwf 5"); // = 0
         PROJ_TEST_LIMIT_RETURN_2_TACTS
-        // TODO SIZE: can reduce delay and just jump to labe_apply_pwr_level__d2_c1
-        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-        asm("movwf 5"); /* assign GPIO: output = 1 */
-        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-        asm("movwf 5"); /* assign GPIO: output = 0 */
-        asm("return");
+        asm("movlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMON)); // 0's delay +3
+        asm("movwf 5"); // = 1 (if not reached limit)
+        AUX_DELAY_1 // 1's delay +1
+        asm("decfsz _tmp_ctr"); // delay (+3 if quit / +4 if repeat)
+        asm("goto labe_apply_pwr_level__d6v4_generic_pre0"); // reenters with delay +4
+            asm("retlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMOFF)); // 1's delay +5
 
-    // ----- duration 3
-    asm("labe_apply_pwr_level__d3_c1:");
-        asm("movf _gp_shadow,w"); // relying on getting here only when current PWM state=0
-        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-        asm("movwf 5"); /* assign GPIO: output = 1 */
-        AUX_DELAY_1
-        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-        asm("movwf 5"); /* assign GPIO: output = 0 */
-        asm("return");
-
-    // ----- duration 2+3
-    asm("labe_apply_pwr_level__d2c1__d3c1:");
-        asm("movf _gp_shadow,w"); // relying on getting here only when current PWM state=0
-        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-        asm("movwf 5"); /* assign GPIO: output = 1 */
-        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-        asm("movwf 5"); /* assign GPIO: output = 0 */
-        AUX_DELAY_5 // distribute load more evenly
+    //asm("movlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMON));
+    //asm("movwf 5"); // = 1
+    //asm("movlw " AUX_STRINGIFY(n_cycle_iters_minus_1)); // 1's delay +1
+    //asm("goto labe_apply_pwr_level__d7v4_generic_enter_minus1"); // 1's delay +3
+    asm("labe_apply_pwr_level__d7v4_generic_enter_minus1:");
+        asm("movwf _tmp_ctr"); // 1's delay +4
+        AUX_DELAY_1 // 1's delay +5
+        asm("labe_apply_pwr_level__d7v4_generic_pre0:"); asm("movlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMOFF)); // delay +6
+        asm("movwf 5"); // = 0
         PROJ_TEST_LIMIT_RETURN_2_TACTS
-        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-        asm("movwf 5"); /* assign GPIO: output = 1 */
-        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-        AUX_DELAY_1
-        asm("movwf 5"); /* assign GPIO: output = 0 */
-        asm("return");
+        asm("movlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMON)); // 0's delay +3
+        asm("movwf 5"); // = 1 (if not reached limit)
+        PROJ_TEST_LIMIT_RETURN_2_TACTS // 1's delay +2
+        asm("decfsz _tmp_ctr"); // delay (+4 if quit / +5 if repeat)
+        asm("goto labe_apply_pwr_level__d7v4_generic_pre0"); // reenters with delay +5
+            asm("retlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMOFF)); // 1's delay +6
 
-    // ----- duration 3+3
-    asm("labe_apply_pwr_level__d3c1__d3c1:");
-        asm("movf _gp_shadow,w"); // relying on getting here only when current PWM state=0
-        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-        asm("movwf 5"); /* assign GPIO: output = 1 */
-        AUX_DELAY_1
-        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-        asm("movwf 5"); /* assign GPIO: output = 0 */
-        AUX_DELAY_5 // distribute load more evenly
+    //asm("movlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMON));
+    //asm("movwf 5"); // = 1
+    //asm("movlw " AUX_STRINGIFY(n_cycle_iters_minus_1)); // 1's delay +1
+    //asm("goto labe_apply_pwr_level__d8v4_generic_enter_minus1"); // 1's delay +3
+    asm("labe_apply_pwr_level__d8v4_generic_enter_minus1:");
+        asm("movwf _tmp_ctr"); // 1's delay +4
+        PROJ_TEST_LIMIT_RETURN_2_TACTS // 1's delay +6
+        asm("labe_apply_pwr_level__d8v4_generic_pre0:"); asm("movlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMOFF)); // delay +7
+        asm("movwf 5"); // = 0
         PROJ_TEST_LIMIT_RETURN_2_TACTS
-        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-        asm("movwf 5"); /* assign GPIO: output = 1 */
-        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
+        //AUX_DELAY_1
+        asm("movlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMON)); // 0's delay +3
+        asm("movwf 5"); // = 1 (if not reached limit)
         AUX_DELAY_1
-        asm("movwf 5"); /* assign GPIO: output = 0 */
-        asm("return");
+        PROJ_TEST_LIMIT_RETURN_2_TACTS // 1's delay +2
+        asm("decfsz _tmp_ctr"); // delay (+4 if quit / +5 if repeat)
+        asm("goto labe_apply_pwr_level__d8v4_generic_pre0"); // reenters with delay +5
+            asm("retlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMOFF)); // 1's delay +6
 
-    asm("labe_apply_pwr_level__d3_c2:");
-        asm("movf _gp_shadow,w"); // relying on getting here only when current PWM state=0
-        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-        asm("movwf 5"); /* assign GPIO: output = 1 */
-        AUX_DELAY_1
-        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-        asm("movwf 5"); /* assign GPIO: output = 0 */
-            PROJ_TEST_LIMIT_RETURN_2_TACTS
-        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-        asm("movwf 5"); /* assign GPIO: output = 1 */
-        AUX_DELAY_1
-        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-        asm("movwf 5"); /* assign GPIO: output = 0 */
-        asm("return");
+    //asm("movlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMON));
+    //asm("movwf 5"); // = 1
+    //asm("movlw " AUX_STRINGIFY(n_cycle_iters_minus_1)); // 1's delay +1
+    //asm("goto labe_apply_pwr_level__d9v4_generic_enter_minus1"); // 1's delay +3
+    asm("labe_apply_pwr_level__d9v4_generic_enter_minus1:");
+        asm("movwf _tmp_ctr"); // 1's delay +4
+        PROJ_TEST_LIMIT_RETURN_2_TACTS // 1's delay +6
+        AUX_DELAY_1 // 1's delay +7
+        asm("labe_apply_pwr_level__d9v4_generic_pre0:"); asm("movlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMOFF)); // delay +8
+        asm("movwf 5"); // = 0
+        PROJ_TEST_LIMIT_RETURN_2_TACTS
+        //AUX_DELAY_1
+        asm("movlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMON)); // 0's delay +3
+        asm("movwf 5"); // = 1 (if not reached limit)
+        PROJ_TEST_LIMIT_RETURN_2_TACTS // 1's delay +2
+        PROJ_TEST_LIMIT_RETURN_2_TACTS // 1's delay +4
+        asm("decfsz _tmp_ctr"); // delay (+6 if quit / +7 if repeat)
+        asm("goto labe_apply_pwr_level__d9v4_generic_pre0"); // reenters with delay +7
+            asm("retlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMOFF)); // 1's delay +8
 
-    asm("labe_apply_pwr_level__d3_c3:");
-    asm("movlw 1");
-    asm("goto labe_apply_pwr_level__d3_X2cycleP1_preinit");
+    //asm("movlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMON));
+    //asm("movwf 5"); // = 1
+    //asm("movlw " AUX_STRINGIFY(n_cycle_iters_minus_1)); // 1's delay +1
+    //asm("goto labe_apply_pwr_level__d10v4_generic_enter_minus1"); // 1's delay +3
+    asm("labe_apply_pwr_level__d10v4_generic_enter_minus1:");
+        asm("movwf _tmp_ctr"); // 1's delay +4
+        PROJ_TEST_LIMIT_RETURN_2_TACTS // 1's delay +6
+        PROJ_TEST_LIMIT_RETURN_2_TACTS // 1's delay +8
+        asm("labe_apply_pwr_level__d10v4_generic_pre0:"); asm("movlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMOFF)); // delay +9
+        asm("movwf 5"); // = 0
+        PROJ_TEST_LIMIT_RETURN_2_TACTS
+        //AUX_DELAY_1
+        asm("movlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMON)); // 0's delay +3
+        asm("movwf 5"); // = 1 (if not reached limit)
+        PROJ_TEST_LIMIT_RETURN_2_TACTS // 1's delay +2
+        PROJ_TEST_LIMIT_RETURN_2_TACTS // 1's delay +4
+        AUX_DELAY_1 // 1's delay +5
+        asm("decfsz _tmp_ctr"); // delay (+7 if quit / +8 if repeat)
+        asm("goto labe_apply_pwr_level__d10v4_generic_pre0"); // reenters with delay +8
+            asm("retlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMOFF)); // 1's delay +9
 
-    asm("labe_apply_pwr_level__d3_c4:");
-    asm("movlw 2");
-    asm("movwf _tmp_ctr");
-    asm("movf _gp_shadow,w"); // relying on getting here only when current PWM state=0
-    asm("goto labe_apply_pwr_level__d3_X2cycle_mid");
-
-    asm("labe_apply_pwr_level__d3_c5:");
-    asm("movlw 2");
-    asm("goto labe_apply_pwr_level__d3_X2cycleP1_preinit");
-
-    asm("labe_apply_pwr_level__d3_c7:");
-    asm("movlw 3");
-    asm("goto labe_apply_pwr_level__d3_X2cycleP1_preinit");
-
-    asm("labe_apply_pwr_level__d3_c9:");
-    asm("movlw 4");
-    asm("goto labe_apply_pwr_level__d3_X2cycleP1_preinit");
-
-    asm("labe_apply_pwr_level__d3_c12:");
-    asm("movlw 6");
-    asm("movwf _tmp_ctr");
-    asm("movf _gp_shadow,w"); // relying on getting here only when current PWM state=0
-    asm("goto labe_apply_pwr_level__d3_X2cycle_mid");
-
-    asm("labe_apply_pwr_level__d3_c15:");
-    asm("movlw 7");
-    asm("goto labe_apply_pwr_level__d3_X2cycleP1_preinit");
-
-    asm("labe_apply_pwr_level__d3_c19:");
-    asm("movlw 9");
-    asm("goto labe_apply_pwr_level__d3_X2cycleP1_preinit");
-
-    asm("labe_apply_pwr_level__d3_c24:");
-    asm("movlw 12");
-    asm("movwf _tmp_ctr");
-    asm("movf _gp_shadow,w"); // relying on getting here only when current PWM state=0
-    asm("goto labe_apply_pwr_level__d3_X2cycle_mid");
-
-    // ----- generic 3
-    asm("labe_apply_pwr_level__d3_X2cycleP1_preinit:");
-    asm("movwf _tmp_ctr");
-    asm("movf _gp_shadow,w"); // relying on getting here only when current PWM state=0
-    asm("labe_apply_pwr_level__d3_cycle:");
-        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-        asm("movwf 5"); /* assign GPIO: output = 1 */
-            AUX_DELAY_1
-        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-        asm("movwf 5"); /* assign GPIO: output = 0 */
-            PROJ_TEST_LIMIT_RETURN_2_TACTS
-        asm("labe_apply_pwr_level__d3_X2cycle_mid:");
-        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-        asm("movwf 5"); /* assign GPIO: output = 1 */
-            AUX_DELAY_1
-        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-        asm("movwf 5"); /* assign GPIO: output = 0 */
-        asm("decfsz _tmp_ctr,f");
-        asm("goto labe_apply_pwr_level__d3_cycle");
-            // last iteration - after cycle, to minimize further delay
-            asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-            asm("movwf 5"); /* assign GPIO: output = 1 */
-                AUX_DELAY_1
-            asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-            asm("movwf 5"); /* assign GPIO: output = 0 */
-            asm("return");
-
-    asm("labe_apply_pwr_level__d4_c18:");
-    asm("movlw 8");
-    asm("movwf _tmp_ctr");
-    asm("movf _gp_shadow,w"); // relying on getting here only when current PWM state=0
-    // ----- generic 4
-    asm("labe_apply_pwr_level__d4_cycle:");
-        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-        asm("movwf 5"); /* assign GPIO: output = 1 */
-            AUX_DELAY_2
-        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-        asm("movwf 5"); /* assign GPIO: output = 0 */
-            PROJ_TEST_LIMIT_RETURN_2_TACTS
-        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-        asm("movwf 5"); /* assign GPIO: output = 1 */
-            AUX_DELAY_2
-        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-        asm("movwf 5"); /* assign GPIO: output = 0 */
-        asm("decfsz _tmp_ctr,f");
-        asm("goto labe_apply_pwr_level__d4_cycle");
-            // last iterations - after cycle, to minimize further delay
-            PROJ_TEST_LIMIT_RETURN_2_TACTS
-            asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-            asm("movwf 5"); /* assign GPIO: output = 1 */
-                AUX_DELAY_2
-            asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-            asm("movwf 5"); /* assign GPIO: output = 0 */
-                AUX_DELAY_2
-            asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-            asm("movwf 5"); /* assign GPIO: output = 1 */
-                AUX_DELAY_2
-            // TODO SIZE: can reduce delay and just jump to such common quit
-            asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-            asm("movwf 5"); /* assign GPIO: output = 0 */
-            asm("return");
-
-    asm("labe_apply_pwr_level__d5_c15:");
-    asm("movlw 7");
-    asm("movwf _tmp_ctr");
-    asm("movf _gp_shadow,w"); // relying on getting here only when current PWM state=0
-    // ----- generic 5
-    asm("labe_apply_pwr_level__d5_cycle:");
-        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-        asm("movwf 5"); /* assign GPIO: output = 1 */
-            AUX_DELAY_3
-        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-        asm("movwf 5"); /* assign GPIO: output = 0 */
-            AUX_DELAY_1
-            PROJ_TEST_LIMIT_RETURN_2_TACTS
-        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-        asm("movwf 5"); /* assign GPIO: output = 1 */
-            AUX_DELAY_3
-        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-        asm("movwf 5"); /* assign GPIO: output = 0 */
-        asm("decfsz _tmp_ctr,f");
-        asm("goto labe_apply_pwr_level__d5_cycle");
-            // last iteration - after cycle, to minimize further delay
-            asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-            asm("movwf 5"); /* assign GPIO: output = 1 */
-                AUX_DELAY_3
-            // TODO SIZE: can reduce delay and just jump to such common quit
-            asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-            asm("movwf 5"); /* assign GPIO: output = 0 */
-            asm("return");
-
-    asm("labe_apply_pwr_level__d6_c12:");
-    asm("movlw 11");
-    asm("movwf _tmp_ctr");
-    asm("movf _gp_shadow,w"); // relying on getting here only when current PWM state=0
-    // ----- generic 6
-    asm("labe_apply_pwr_level__d6_cycle:");
-        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-        asm("movwf 5"); /* assign GPIO: output = 1 */
-            AUX_DELAY_4
-        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-        asm("movwf 5"); /* assign GPIO: output = 0 */
-            PROJ_TEST_LIMIT_RETURN_2_TACTS
-        asm("decfsz _tmp_ctr,f");
-        asm("goto labe_apply_pwr_level__d6_cycle");
-            // last iteration - after cycle, to minimize further delay
-            asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-            asm("movwf 5"); /* assign GPIO: output = 1 */
-                AUX_DELAY_4
-            // TODO SIZE: can reduce delay and just jump to such common quit
-            asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-            asm("movwf 5"); /* assign GPIO: output = 0 */
-            asm("return");
-
-    asm("labe_apply_pwr_level__d7_c10:");
-    asm("movlw 9");
-    asm("movwf _tmp_ctr");
-    asm("movf _gp_shadow,w"); // relying on getting here only when current PWM state=0
-    // ----- generic 7
-    asm("labe_apply_pwr_level__d7_cycle:");
-        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-        asm("movwf 5"); /* assign GPIO: output = 1 */
-            AUX_DELAY_5
-        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-        asm("movwf 5"); /* assign GPIO: output = 0 */
-            PROJ_TEST_LIMIT_RETURN_2_TACTS
-        asm("decfsz _tmp_ctr,f");
-        asm("goto labe_apply_pwr_level__d7_cycle");
-            // last iteration - after cycle, to minimize further delay
-            asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-            asm("movwf 5"); /* assign GPIO: output = 1 */
-                AUX_DELAY_5
-            // TODO SIZE: can reduce delay and just jump to such common quit
-            asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-            asm("movwf 5"); /* assign GPIO: output = 0 */
-            asm("return");
-
-    asm("labe_apply_pwr_level__d9_c8:");
-    asm("movlw 7");
-    asm("movwf _tmp_ctr");
-    asm("movf _gp_shadow,w"); // relying on getting here only when current PWM state=0
-    // ----- generic 9
-    asm("labe_apply_pwr_level__d9_cycle:");
-        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-        asm("movwf 5"); /* assign GPIO: output = 1 */
-            AUX_DELAY_7
-        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-        asm("movwf 5"); /* assign GPIO: output = 0 */
-            AUX_DELAY_2
-            PROJ_TEST_LIMIT_RETURN_2_TACTS
-        asm("decfsz _tmp_ctr,f");
-        asm("goto labe_apply_pwr_level__d9_cycle");
-            // last iteration - after cycle, to minimize further delay
-            asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-            asm("movwf 5"); /* assign GPIO: output = 1 */
-                AUX_DELAY_7
-            // TODO SIZE: can reduce delay and just jump to such common quit
-            asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-            asm("movwf 5"); /* assign GPIO: output = 0 */
-            asm("return");
-
-    asm("labe_apply_pwr_level__d12_c6:");
-    asm("movlw 5");
-    asm("movwf _tmp_ctr");
-    asm("movf _gp_shadow,w"); // relying on getting here only when current PWM state=0
-    // ----- generic 12
-    asm("labe_apply_pwr_level__d12_cycle:");
-        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-        asm("movwf 5"); /* assign GPIO: output = 1 */
-            AUX_DELAY_10
-        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-        asm("movwf 5"); /* assign GPIO: output = 0 */
-            AUX_DELAY_5
-            PROJ_TEST_LIMIT_RETURN_2_TACTS
-        asm("decfsz _tmp_ctr,f");
-        asm("goto labe_apply_pwr_level__d12_cycle");
-            // last iteration - after cycle, to minimize further delay
-            asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-            asm("movwf 5"); /* assign GPIO: output = 1 */
-                AUX_DELAY_10
-            // TODO SIZE: can reduce delay and just jump to such common quit
-            asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-            asm("movwf 5"); /* assign GPIO: output = 0 */
-            asm("return");
-
-    asm("labe_apply_pwr_level__d15_c5:");
-    asm("movlw 4");
-    asm("movwf _tmp_ctr");
-    asm("movf _gp_shadow,w"); // relying on getting here only when current PWM state=0
-    // ----- generic 15
-    asm("labe_apply_pwr_level__d15_cycle:");
-        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-        asm("movwf 5"); /* assign GPIO: output = 1 */
-            AUX_DELAY_13
-        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-        asm("movwf 5"); /* assign GPIO: output = 0 */
-            AUX_DELAY_8
-            PROJ_TEST_LIMIT_RETURN_2_TACTS
-        asm("decfsz _tmp_ctr,f");
-        asm("goto labe_apply_pwr_level__d15_cycle");
-            // last iteration - after cycle, to minimize further delay
-            asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-            asm("movwf 5"); /* assign GPIO: output = 1 */
-                AUX_DELAY_13
-            // TODO SIZE: can reduce delay and just jump to such common quit
-            asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-            asm("movwf 5"); /* assign GPIO: output = 0 */
-            asm("return");
-
-    asm("labe_apply_pwr_level__d18_c4:");
-    asm("movlw 3");
-    asm("movwf _tmp_ctr");
-    asm("movf _gp_shadow,w"); // relying on getting here only when current PWM state=0
-    // ----- generic 18
-    asm("labe_apply_pwr_level__d18_cycle:");
-        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-        asm("movwf 5"); /* assign GPIO: output = 1 */
-            AUX_DELAY_16
-        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-        asm("movwf 5"); /* assign GPIO: output = 0 */
-            AUX_DELAY_11
-            PROJ_TEST_LIMIT_RETURN_2_TACTS
-        asm("decfsz _tmp_ctr,f");
-        asm("goto labe_apply_pwr_level__d18_cycle");
-            // last iteration - after cycle, to minimize further delay
-            asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-            asm("movwf 5"); /* assign GPIO: output = 1 */
-                AUX_DELAY_16
-            // TODO SIZE: can reduce delay and just jump to such common quit
-            asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-            asm("movwf 5"); /* assign GPIO: output = 0 */
-            asm("return");
-
-
-    // special handler
-    asm("labe_apply_pwr_level__special:");
-    asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-    asm("movwf 5"); /* assign GPIO: output = 0 */
-        AUX_DELAY_17
-    asm("goto labe_apply_pwr_level__pre_max_level");
-    //
-
-    asm("labe_apply_pwr_level__d21_c3:");
-    asm("movlw 2");
-    asm("movwf _tmp_ctr");
-    asm("movf _gp_shadow,w");
-    //
-    asm("btfsc 5," AUX_STRINGIFY(PROJ_BIT_NUM_OUT_PWM_0)); // check if we came here from pwr MAX - then pre-apply 0
-    asm("goto labe_apply_pwr_level__special");
-    //
-    // ----- generic 21
-    asm("labe_apply_pwr_level__pre_max_level:");
-    asm("labe_apply_pwr_level__d21_cycle:");
-        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-        asm("movwf 5"); /* assign GPIO: output = 1 */
-            AUX_DELAY_19
-        asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-        asm("movwf 5"); /* assign GPIO: output = 0 */
-            AUX_DELAY_14
-            PROJ_TEST_LIMIT_RETURN_2_TACTS
-        asm("decfsz _tmp_ctr,f");
-        asm("goto labe_apply_pwr_level__d21_cycle");
-            // last iteration - after cycle, to minimize further delay
-            asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-            asm("movwf 5"); /* assign GPIO: output = 1 */
-                AUX_DELAY_19
-            // TODO SIZE: can reduce delay and just jump to such common quit
-            asm("xorlw " AUX_STRINGIFY(PROJ_OUT_FET_PINS_ALL_MASK));
-            asm("movwf 5"); /* assign GPIO: output = 0 */
-            asm("return");
-
-    asm("labe_apply_pwr_level__post_max:");
-    asm("decf _pwr_level,f"); // edge handling
-    asm("labe_apply_pwr_level__max:");
-        PROJ_SET_GPIO_CAPON_PWMON
-        asm("return");
+    //asm("movlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMON));
+    //asm("movwf 5"); // = 1
+    //asm("movlw " AUX_STRINGIFY(n_cycle_iters_minus_1)); // 1's delay +1
+    //asm("goto labe_apply_pwr_level__d11v4_generic_enter_minus1"); // 1's delay +3
+    asm("labe_apply_pwr_level__d11v4_generic_enter_minus1:");
+        asm("movwf _tmp_ctr"); // 1's delay +4
+        PROJ_TEST_LIMIT_RETURN_2_TACTS // 1's delay +6
+        PROJ_TEST_LIMIT_RETURN_2_TACTS // 1's delay +8
+        AUX_DELAY_1 // 1's delay +9
+        asm("labe_apply_pwr_level__d11v4_generic_pre0:"); asm("movlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMOFF)); // delay +10
+        asm("movwf 5"); // = 0
+        PROJ_TEST_LIMIT_RETURN_2_TACTS
+        //AUX_DELAY_1
+        asm("movlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMON)); // 0's delay +3
+        asm("movwf 5"); // = 1 (if not reached limit)
+        PROJ_TEST_LIMIT_RETURN_2_TACTS // 1's delay +2
+        PROJ_TEST_LIMIT_RETURN_2_TACTS // 1's delay +4
+        PROJ_TEST_LIMIT_RETURN_2_TACTS // 1's delay +6
+        asm("decfsz _tmp_ctr"); // delay (+8 if quit / +9 if repeat)
+        asm("goto labe_apply_pwr_level__d11v4_generic_pre0"); // reenters with delay +9
+            asm("retlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMOFF)); // 1's delay +10
 }
 
 void main() {
@@ -906,18 +1073,8 @@ void main() {
 
     asm("bcf 3,5"); // ensure bank0 selected
     PROJ_ADC_SETUP__WHEN_BANK0()
-    AUX_DELAY_40
-    PROJ_ADC_START()
-    PROJ_ADC_WAIT("labe_preinit_adc_min_voltage")
-    asm("movf " LOCATION__ADCVAL ",w"); // w = ADRESH
-    asm("movwf _thr_min"); // thr_min = w (ADC result)
-
-    // TODO revise thr_min? in case of having very high startup current (connecting to high-saturated solar; which would drive thr_min too high)
-    // this is probably not necessary with 'PWRTE = OFF' as startup time is very small. TODO calculate/verify
-    asm("movlw 6");
-    asm("addwf _thr_min,f"); // +2%. ensure no overflow
-    asm("skipnc"); // must be no overflow - otherwise it's mistake in scheme or ADC failure
-    asm("subwf _thr_min,f"); // undo if overflowed
+    asm("movlw 38h");
+    asm("movwf _thr_min");
 
     // pre-init raw adc with pre-wait 1 second
     {
@@ -930,16 +1087,9 @@ void main() {
             asm("bsf _timer_multiplier," AUX_STRINGIFY(PROJ_TIMER_MULTIPLIER_AS_BIT));
     }
     {
-        PROJ_SET_GPIO_CAPON_PWMOFF
-        PROJ_SET_GPIO_CAPOFF_PWMOFF
-
         asm("fcall _fast_RunADC_8_rising");
-        asm("movf " LOCATION__ADCVAL ",w"); // w = ADRESH (ADC result)
+        asm("movf _adc_last_val,w");
         asm("movwf _last_raw_adc_val");
-
-        asm("bsf _gp_shadow," AUX_STRINGIFY(PROJ_BIT_NUM_OUT_CAP));
-        asm("movf _gp_shadow,w");
-        asm("movwf 5"); // attach capacitor
     }
     {
         //asm("bcf 3,5"); // ensure bank0 selected
@@ -954,8 +1104,12 @@ void main() {
         asm("addwf _thr_hi,f"); // thr_hi += (thr_min - thr_hi)
     }
     //
+    asm("labe_main__pre_cycle:");
     PROJ_ADC_START()
-    AUX_DELAY_3 // align with cycle internal delays
+        asm("bcf " LOCATION__PIR1bits_TMR1IF);
+        PROJ_SKIP_IF_LIMIT_REACHED // aligned equally - delay 1 tact
+        asm("goto labe_main__cycle_pre_apply_pwr_call"); // -- delay 2 tact if skipped
+        // for first call it's ok to enter in the middle of cycle as pwr_level is 0
     asm("labe_main__cycle:");
         PROJ_SKIP_IF_LIMIT_NOTREACHED
         asm("goto labe_main__cycle_handle_limit_pocket");
@@ -968,9 +1122,10 @@ void main() {
             asm("movlw 2"); // doesn't affect status
             asm("skipc"); // c == no borrow
             asm("subwf _pwr_level,f"); // pwr_level = pwr_level - w(2) (...or will be decremented)
-            // TODO consider higher drop-offs as some short-circut handling/more aggressive balancing?
 
-            asm("fcall _apply_pwr_level");
+            asm("labe_main__cycle_pre_apply_pwr_call:");
+            asm("fcall labe_apply_pwr_level__enter");
+            asm("movwf 5"); // final post-apply W to GPIO
             // main part done
 
 
@@ -978,136 +1133,42 @@ void main() {
         PROJ_ADC_START()
         asm("btfss " LOCATION__PIR1bits_TMR1IF);
         asm("goto labe_main__cycle");
-        asm("btfsc _app_flags," AUX_STRINGIFY(PROJ_APP_FLAG_CYCLE_RETURN_TRAP));
-        asm("return");
 
         asm("decfsz _timer_multiplier,f");
-        asm("goto labe_main__cycle_timer_unlocker");
+        asm("goto labe_main__pre_cycle");
             asm("bsf _timer_multiplier," AUX_STRINGIFY(PROJ_TIMER_MULTIPLIER_AS_BIT));
 
-        asm("bsf _app_flags," AUX_STRINGIFY(PROJ_APP_FLAG_CYCLE_RETURN_TRAP));
-        // measure/update raw voltage
-        PROJ_SET_GPIO_CAPON_PWMOFF
-        PROJ_SET_GPIO_CAPOFF_PWMOFF
-        // detached cap, give some time to establish raw voltage
         asm("fcall _fast_RunADC_8_rising");
-        PROJ_SET_GPIO_CAPON_PWMOFF // attach capacitor back
         // save result
-        asm("movf " LOCATION__ADCVAL ",w"); // w = ADRESH (ADC result)
-        asm("movwf _pending_raw_adc_val");
-        //// measured; run a cycle to minimize delay gap
-            PROJ_ADC_START()
-            AUX_DELAY_1
-            asm("fcall labe_main__cycle");
-        //// refresh thr if needed
-        asm("movf _pending_raw_adc_val,w"); // TODO input1 can be union with last_raw_adc_val to save 2 commands
+        asm("movf _adc_last_val,w");
         asm("xorwf _last_raw_adc_val,w");
         asm("skipnz");
-        asm("goto labe_main__cycle_flags_done"); // no changes
+        asm("goto labe_main__pre_cycle"); // no changes
         // different - needs recalculation
 
-        asm("clrf _fast_mul_8x8_res_h");
-        asm("clrf _fast_mul_8x8_res_l");
-            //// run cycle - minimize difference in delays
-            PROJ_ADC_START()
-            AUX_DELAY_1 // align delays
-            asm("fcall labe_main__cycle");
-            ////
-
-        asm("movf _pending_raw_adc_val,w");
+        PROJ_ADC_START() // keep discharging
+        asm("movf _adc_last_val,w");
         asm("movwf _last_raw_adc_val");
-        // inlined multiplication
-        #if (PROJ_CONST_THR & 0x80)
-            asm("addwf _fast_mul_8x8_res_l,f");
-            asm("rlf _fast_mul_8x8_res_l,f");
-            asm("rlf _fast_mul_8x8_res_h,f");
-        #endif
-        #if (PROJ_CONST_THR & 0x40)
-            asm("addwf _fast_mul_8x8_res_l,f");
-            asm("skipnc");
-            asm("incf _fast_mul_8x8_res_h");
-        #endif
-                asm("clrc"); // post 6, pre 5
-                asm("rlf _fast_mul_8x8_res_l,f");
-                asm("rlf _fast_mul_8x8_res_h,f");
-            //// run cycle - minimize difference in delays
-            PROJ_ADC_START()
-            AUX_DELAY_1 // align delays
-            asm("fcall labe_main__cycle");
-            asm("movf _pending_raw_adc_val,w"); // recover W
-            ////
-        #if (PROJ_CONST_THR & 0x20)
-            asm("addwf _fast_mul_8x8_res_l,f");
-            asm("skipnc");
-            asm("incf _fast_mul_8x8_res_h");
-        #endif
-                asm("clrc"); // post 5, pre 4
-                asm("rlf _fast_mul_8x8_res_l,f");
-                asm("rlf _fast_mul_8x8_res_h,f");
-        #if (PROJ_CONST_THR & 0x10)
-            asm("addwf _fast_mul_8x8_res_l,f");
-            asm("skipnc");
-            asm("incf _fast_mul_8x8_res_h");
-        #endif
-                asm("clrc"); // post 4, pre 3
-                asm("rlf _fast_mul_8x8_res_l,f");
-                asm("rlf _fast_mul_8x8_res_h,f");
-        #if (PROJ_CONST_THR & 0x08)
-            asm("addwf _fast_mul_8x8_res_l,f");
-            asm("skipnc");
-            asm("incf _fast_mul_8x8_res_h");
-        #endif
-                asm("clrc"); // post 3, pre 2
-                asm("rlf _fast_mul_8x8_res_l,f");
-                asm("rlf _fast_mul_8x8_res_h,f");
-        #if (PROJ_CONST_THR & 0x04)
-            asm("addwf _fast_mul_8x8_res_l,f");
-            asm("skipnc");
-            asm("incf _fast_mul_8x8_res_h");
-        #endif
-                asm("clrc"); // post 2, pre 1
-                asm("rlf _fast_mul_8x8_res_l,f");
-                asm("rlf _fast_mul_8x8_res_h,f");
-            //// run cycle - minimize difference in delays
-            PROJ_ADC_START()
-            AUX_DELAY_1 // align delays
-            asm("fcall labe_main__cycle");
-            asm("movf _pending_raw_adc_val,w"); // recover W
-            ////
-        #if (PROJ_CONST_THR & 0x02)
-            asm("addwf _fast_mul_8x8_res_l,f");
-            asm("skipnc");
-            asm("incf _fast_mul_8x8_res_h");
-        #endif
-                asm("clrc"); // post 1, pre 0
-                asm("rlf _fast_mul_8x8_res_l,f");
-                asm("rlf _fast_mul_8x8_res_h,f");
-        #if (PROJ_CONST_THR & 0x01)
-            asm("addwf _fast_mul_8x8_res_l,f");
-            asm("skipnc");
-            asm("incf _fast_mul_8x8_res_h");
-        #endif
-        // end ------------------
+        //
+        PROJ_SKIP_IF_LIMIT_NOTREACHED
+        asm("goto labe_main__cycle_proceed_calculate_thr");
+            // note: LOCATION__PIR1bits_TMR1IF isn't cleared by this moment
+            asm("fcall labe_apply_pwr_level__enter");
+            asm("movwf 5"); // final post-apply W to GPIO
+        //
+        asm("labe_main__cycle_proceed_calculate_thr:");
+        asm("movf _last_raw_adc_val,w"); // can be moved UP under if
+        asm("fcall _fast_mul_8x8");
+        PROJ_ADC_START() // keep discharging
+
         asm("movf _fast_mul_8x8_res_h,w");
         asm("movwf _thr_hi"); // thr_hi = last_raw_adc_val * g_thr / 256
 
-        asm("subwf _thr_min,w"); // w(thr_hi) = thr_min - w ; if borrow - no action
+        asm("subwf _thr_min,w"); // w = thr_min - thr_hi; if borrow - no action
         asm("skipnc"); // skip next if borrow
         asm("addwf _thr_hi,f"); // thr_hi += (thr_min - thr_hi)
-
-            //// run cycle - minimize difference in delays
-            PROJ_ADC_START()
-            AUX_DELAY_1 // align delays
-            asm("fcall labe_main__cycle");
-            ////
-
-        // ---------------------------------
-        asm("labe_main__cycle_flags_done:");
-        asm("bcf _app_flags," AUX_STRINGIFY(PROJ_APP_FLAG_CYCLE_RETURN_TRAP));
-        asm("labe_main__cycle_timer_unlocker:");
-        PROJ_ADC_START()
-        asm("bcf " LOCATION__PIR1bits_TMR1IF);
-        asm("goto labe_main__cycle");
+        //
+        asm("goto labe_main__pre_cycle");
 
         // ------------------------------------------
         asm("labe_main__cycle_handle_limit_pocket:");
