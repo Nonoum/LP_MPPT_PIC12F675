@@ -49,6 +49,8 @@ Version format is major.minor.THR.OPTION where:
     - so minimum voltage is now hardcoded to be 21.8% of measured range (actual voltage range depends on PIC input voltage and voltage divider on ADC line);
     - actual THR voltages will be from around 50% (to 80%) of divider range (solar panels would output somewhat power starting from around 50% of their nominal OCV);
     - *with older FW ADC provides completely invalid starting measured level if larger capacitor is added to PIC power supply.
+- updated internal documentation/notes in main.c;
+- tested conversion efficiency reached 97% @ 11.7v 6w output;
 - still present issue: when input power is more than output load can consume (cut by limiting logic) - there's coil whine and some extra power loss (e.g. input is capable of providing 22watts, output can consume 19 watts, actual output is 18.5 watts), planned for further improvement of limiting logic;
 - now when output can be (sometimes) as flat as a battery (not just voltage, but even current in 3 digits) it's very clear how much PCB layout/design matters as second prototype with smarter assembly works much more smoothly in same conditions, so at some point PCB layout example/recommendations will be provided, minimal recommendation would be to keep power circuit (fets+inductor+diode+output capacitor) as dense as possible and solder to capacitors as close as possible.
 
