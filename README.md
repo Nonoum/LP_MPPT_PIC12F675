@@ -1,34 +1,44 @@
-## LOW POWER-oriented LOW-COST MPPT controller based on PIC12F675 MCU with minimal external components.
+## LOW POWER-capable wide power range LOW-COST Solar MPPT controller based on PIC12F675 MCU with minimal external components.
 
 ### Apparently for the first time in my life I'm relasing a project prematurely (version 0.1.0.A), as I believe I'm forced to do so due to latest events in my country, in hope that this project is mature enough and can already be used in some areas to help my people.
 
 #### Detailed description and documentation is in top of "pic12f675/main.c" file. Ukrainian version of description will be available on Ukrainian internet resources.
 
-#### I've been working on this project intermittently during Autumn 2022 and it took longer than I wanted as I have extremely limited time/resources.
+#### I've been working on this project intermittently since Autumn 2022 and it took longer than I wanted as I have extremely limited time/resources.
 
-#### "LOW POWER" note: designed specifically for use in cloudy and winter weather to work properly with generated power starting from around 0.1W, but depending on used components can be used for high power as well. The prototype was designed/assembled for power range 0.1W - 100W. Even higher power can be achieved with strong inductor etc.
+#### "LOW POWER" note: designed specifically for use in cloudy and winter weather to work properly with generated power starting from around 0.1W, but depending on used components can be used for high power as well, which won't impede proper work of very same device with low power, due to device concept and low frequency MCU. Most reasonable use-case is a small solar station / medium-size panel (e.g. for hiking) with solar panel(s) rating ranging from some 10W to 100W.
 
 
 ### Repository structure:
 - pic12f675/main.c - MCU source code with description and documentation;
 - pic12f675/Basic_Scheme.png - schematic of solution with some description (drawn by hand, electricity may drop-off any time anyway).
-- pic12f675/compiled/... - firmware images (current version - 0.10.THR.OPTION).
-- pic12f675/compiled/pic12f675_lp_mppt__0_10_198_B.hex - latest tested version.
-- pic12f675/compiled/pic12f675_lp_mppt__0_10_198_F.hex - latest tested version.
+- pic12f675/compiled/... - firmware images (current version - 1.0.THR.OPTION).
+- pic12f675/compiled/pic12f675_lp_mppt__1_0_198_B.hex - latest tested version.
+- pic12f675/compiled/pic12f675_lp_mppt__1_0_198_F.hex - latest tested version.
 
 ### Versioning important note:
 Version format is major.minor.THR.OPTION where:
 - THR is a threshold constant, which should be chosen according to used input diode for optimal work:
-    * at the moment compiled THR versions are 202, 198, 194; 202 is assumed for "no input diode" connection, 198 - for low drop diodes, 194 - for worse diodes.
+    * compiled THR versions are 202, 198, 194; 202 is assumed for "no input diode" connection, 198 - for low drop diodes, 194 - for worse diodes.
     * THR choice affects efficiency and output pulsations and it's preferable to use lower THR (leave a little room until MPP) - see "PROJ_CONST_THR" notes and "Input diode Vf" notes in "main.c".
 - OPTION is used pinout/topology, see "FW_VER_OPTION vaiants" in "main.c".
 - version data is built into FW at the end addresses (before OSCCAL) so it can be easily checked, those bytes/commands aren't used by firmware.
 
 
 ### Releases
-- TBD: several another significant improvements are already thought-out and are waiting for being implemented;
-- TBD: schematic/PCB layout example and recommendations;
+- TBD: schematic examples, PCB layout example and recommendations;
 - TBD: 'TLDR DIY instructions';
+
+#### Release 1.0.x.B, 1.0.x.F [05 april 2023] - last planned code release, only some auxiliary info updates are planned now.
+- reworked mid and high PWM modes (now 72 modes in total);
+- improved limiting logic and accuraccy;
+- increased range of continuous mode (more cases/more possibility of falling into continuous mode);
+- reduced ripple current;
+- reduced coil whine is some cases;
+- eased output capacitor requirements;
+- optimized OCV measuring algorithm and used EEPROM for faster multiplication (smaller no-output-feeding gaps during OCV measurings : minimal possible gap is 52us);
+- updated documentation (in main.c);
+- ran wide testing using different equipment, efficiency results appeared slightly smaller (measuring errors +/-) but up to 95% conversion efficiency.
 
 #### Release 0.10.x.B, 0.10.x.F [18 feb 2023] - two game-changing updates in one, and some fixes (don't miss '47uf capacitor' notes)
 - revised and drastically reworked PWM modes, now 90 modes instead of old 26 modes;
