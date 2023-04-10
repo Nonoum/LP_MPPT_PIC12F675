@@ -26,8 +26,16 @@ Version format is major.minor.THR.OPTION where:
 
 
 ### Releases
-- TBD: schematic examples, PCB layout example and recommendations;
-- TBD: 'TLDR DIY instructions';
+- TBD: youtube video with more details;
+
+
+#### [10 april 2023] - added schematic samples, assembly example and more info
+- added TLDR_DIY.md
+- added HOTWO_PROGRAM_PIC12F675_USING_ARDUINO_IN_5_MINUTES.md
+- added pic12f675/1.0_schematics.jpg - extended schematics info
+- added pic12f675/lp_mppt_pic12f675__prototype2_top_view.png
+- added pic12f675/lp_mppt_pic12f675__prototype2_bottom_view_flipped.png
+- added pic12f675/lp_mppt_pic12f675__prototype2_bottom_view_flipped_commented.png
 
 #### Release 1.0.x.B, 1.0.x.F [05 april 2023] - last planned code release, only some auxiliary info updates are planned now.
 - reworked mid and high PWM modes (now 72 modes in total);
