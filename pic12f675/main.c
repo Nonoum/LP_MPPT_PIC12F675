@@ -130,7 +130,7 @@ NOTES for release 1.0.*.*:
 
 // version info (3 numbers and letter) is accessible at top program-memory addresses right before OSCCAL (retlw commands)
 #define FW_VER_MAJOR 1
-#define FW_VER_MINOR 0
+#define FW_VER_MINOR 1
 #define FW_VER_THR PROJ_CONST_THR
 #define FW_VER_OPTION 'F' // some letter describing topology/configuration of compiled code. default is 'F'
 /*
@@ -262,6 +262,7 @@ uint8_t timer_multiplier = (1 << PROJ_TIMER_MULTIPLIER_AS_BIT);
 // vars for raw voltage measuring
 uint8_t adc_last_val;
 uint8_t adc_extra_val;
+uint8_t adc_ocv_prev;
 
 
 #define LOCATION__PIR1bits_TMR1IF "12,0"
@@ -345,7 +346,8 @@ void tmr_proc() {
         asm("movwf _tmp_ctr"); // prepare cnt for cycle
         asm("movlw 2");
         asm("movwf _tmp_ctr2"); // prepare equal sequence for best cycle case
-        AUX_DELAY_2
+        asm("movf _adc_last_val,w");
+        asm("movwf _adc_ocv_prev");
     PROJ_ADC_START() // sample #2 rdy
         asm("movf " LOCATION__ADCVAL ",w"); // sample #2
         asm("movwf _adc_last_val");
@@ -357,7 +359,7 @@ void tmr_proc() {
         asm("movwf _adc_last_val");
         asm("skipz");
             asm("goto labe_tmr_proc__mismatch_3_2");
-        asm("movf _last_raw_adc_val,w");
+        asm("movf _adc_ocv_prev,w");
         asm("xorwf _adc_last_val,f"); // compare #3(==#2) with previous OCV
     PROJ_ADC_START() // sample #4 rdy
         asm("skipnz");
@@ -372,7 +374,7 @@ void tmr_proc() {
     PROJ_ADC_START() // sample #5 rdy
         asm("xorwf _adc_extra_val,f"); // compare #4(==#3) with #2
         asm("skipnz");
-            asm("goto labe_tmr_proc__wrap_up"); // ..68 tacts between pwm_off and returning to called code (+7 tacts more to pwm_on) [considering tabled multiply]
+            asm("goto labe_tmr_proc__wrap_up"); // ..65 tacts between pwm_off and returning to called code (+7 tacts more to pwm_on) [considering tabled multiply]
         asm("movf " LOCATION__ADCVAL ",w"); // sample #5
         asm("xorwf _adc_last_val,f"); // compare #5 with #4
         asm("movwf _adc_last_val");
@@ -398,25 +400,22 @@ void tmr_proc() {
     asm("movf " LOCATION__ADCVAL ",w");
     // avg last 2 samples just in case
     asm("addwf _adc_last_val,f");
-    asm("rrf _adc_last_val,f"); // adc_last_val = avg of last 8 adc samples
+    asm("rrf _adc_last_val,f"); // adc_last_val = avg of last 2 adc samples
     //
     asm("labe_tmr_proc__wrap_up:");
         PROJ_SET_GPIO_CAPON_PWMOFF
-        asm("movf _adc_last_val,w");
-        asm("movwf _last_raw_adc_val");
         PROJ_ADC_START() // run adc for 1 sample after measuring and ignore that sample (recover working voltage)
 
-        asm("btfsc _last_raw_adc_val,7"); // test MSB
-            asm("goto labe_tmr_proc__tabled");
-        asm("fcall _fast_mul_8x8");
-
-        asm("movf _fast_mul_8x8_res_h,w");
-        asm("movwf _thr_hi"); // thr_hi = last_raw_adc_val * g_thr / 256
-        //
-        asm("subwf _thr_min,w"); // w(thr_hi) = thr_min - w ; if borrow - no action
-        asm("skipnc"); // skip next if borrow
-        asm("addwf _thr_hi,f"); // thr_hi += (thr_min - thr_hi)
-        //
+        asm("btfss _adc_last_val,7"); // test MSB
+            asm("goto labe_tmr_proc__div2_tabled");
+        // MSB=1; straight tabled lookup
+        asm("bsf 3,5"); // bank1 ------------
+        asm("movf _adc_last_val,w");
+        asm("movwf " LOCATION__EEADDR);
+        asm("bsf " LOCATION__EECON1_RD);
+        asm("movf " LOCATION__EEDATA ",w");
+        asm("bcf 3,5"); // back to bank0 ----
+        asm("movwf _thr_hi");
         asm("return");
 
     asm("labe_tmr_proc__quit_fastest:");
@@ -430,92 +429,21 @@ void tmr_proc() {
         asm("clrf _tmp_ctr2"); // clear amount of equal values if mismatch
         asm("goto labe_tmr_proc__cycle");
 
-    asm("labe_tmr_proc__tabled:");
+    asm("labe_tmr_proc__div2_tabled:"); // MSB is zero
         asm("bsf 3,5"); // bank1 ------------
-        asm("movf _adc_last_val,w");
+        asm("rlf _adc_last_val,w"); // w = adc * 2; C-flag = 0
         asm("movwf " LOCATION__EEADDR);
         asm("bsf " LOCATION__EECON1_RD);
-        asm("movf " LOCATION__EEDATA ",w");
+        asm("rrf " LOCATION__EEDATA ",w"); // w = mul result / 2
         asm("bcf 3,5"); // back to bank0 ----
         asm("movwf _thr_hi");
+        // validate minimum
+        asm("subwf _thr_min,w"); // w(thr_hi) = thr_min - w ; if borrow - no action
+        asm("skipnc"); // skip next if borrow
+        asm("addwf _thr_hi,f"); // thr_hi += (thr_min - thr_hi)
         // 'return' is auto-generated
 }
 
-
-uint8_t fast_mul_8x8_res_h;
-uint8_t fast_mul_8x8_res_l;
-// multiplies w * PROJ_CONST_THR -> fast_mul_8x8_res_h:fast_mul_8x8_res_l
-// optimal voltage is around 80-81% for evenly saturated solar panel, it doesn't depend on radiation level nor on temperature.
-void fast_mul_8x8() {
-    asm("clrf _fast_mul_8x8_res_h");
-    asm("clrf _fast_mul_8x8_res_l");
-
-    #if (PROJ_CONST_THR & 0x80)
-        asm("addwf _fast_mul_8x8_res_l,f");
-        //asm("skipnc"); // redundant for the first multiplied bit
-        //asm("incf _fast_mul_8x8_res_h"); // redundant for the first multiplied bit
-
-        //asm("clrc"); // post 7, pre 6 // redundant for the first multiplied bit
-        asm("rlf _fast_mul_8x8_res_l,f");
-        asm("rlf _fast_mul_8x8_res_h,f");
-    #endif
-    #if (PROJ_CONST_THR & 0x40)
-        asm("addwf _fast_mul_8x8_res_l,f");
-        asm("skipnc");
-        asm("incf _fast_mul_8x8_res_h");
-            asm("clrc"); // post 6, pre 5 // only needed if changed after last RRF command
-    #endif
-            asm("rlf _fast_mul_8x8_res_l,f");
-            asm("rlf _fast_mul_8x8_res_h,f");
-    #if (PROJ_CONST_THR & 0x20)
-        asm("addwf _fast_mul_8x8_res_l,f");
-        asm("skipnc");
-        asm("incf _fast_mul_8x8_res_h");
-            asm("clrc"); // post 5, pre 4 // only needed if changed after last RRF command
-    #endif
-            asm("rlf _fast_mul_8x8_res_l,f");
-            asm("rlf _fast_mul_8x8_res_h,f");
-    #if (PROJ_CONST_THR & 0x10)
-        asm("addwf _fast_mul_8x8_res_l,f");
-        asm("skipnc");
-        asm("incf _fast_mul_8x8_res_h");
-            asm("clrc"); // post 4, pre 3 // only needed if changed after last RRF command
-    #endif
-            asm("rlf _fast_mul_8x8_res_l,f");
-            asm("rlf _fast_mul_8x8_res_h,f");
-    #if (PROJ_CONST_THR & 0x08)
-        asm("addwf _fast_mul_8x8_res_l,f");
-        asm("skipnc");
-        asm("incf _fast_mul_8x8_res_h");
-            asm("clrc"); // post 3, pre 2 // only needed if changed after last RRF command
-    #endif
-            asm("rlf _fast_mul_8x8_res_l,f");
-            asm("rlf _fast_mul_8x8_res_h,f");
-    #if (PROJ_CONST_THR & 0x04)
-        asm("addwf _fast_mul_8x8_res_l,f");
-        asm("skipnc");
-        asm("incf _fast_mul_8x8_res_h");
-            asm("clrc"); // post 2, pre 1 // only needed if changed after last RRF command
-    #endif
-            asm("rlf _fast_mul_8x8_res_l,f");
-            asm("rlf _fast_mul_8x8_res_h,f");
-    #if (PROJ_CONST_THR & 0x02)
-        asm("addwf _fast_mul_8x8_res_l,f");
-        asm("skipnc");
-        asm("incf _fast_mul_8x8_res_h");
-            asm("clrc"); // post 1, pre 0 // only needed if changed after last RRF command
-    #endif
-            asm("rlf _fast_mul_8x8_res_l,f");
-            asm("rlf _fast_mul_8x8_res_h,f");
-    #if (PROJ_CONST_THR & 0x01)
-        asm("addwf _fast_mul_8x8_res_l,f");
-        asm("skipnc");
-        asm("incf _fast_mul_8x8_res_h");
-    #endif
-        // asm("return"); // auto generated
-}
-
-uint8_t last_raw_adc_val = 0;
 uint8_t thr_min;
 uint8_t thr_hi; // high level voltage threshold
 uint8_t pwr_level = 1; // active power level. 0,1 = disconnected
@@ -1263,6 +1191,8 @@ void apply_pwr_level__storage1() __at(0x0001)
     asm("labe_apply_pwr_level__gen_fall_m4_d2:");
         PROJ_SKIP_IF_LIMIT_NOTREACHED
             asm("goto labe_apply_pwr_level__gen_fall_m4_d3"); // limited
+        asm("movlw " AUX_STRINGIFY(PROJ_STATE_GPIO_CAPON_PWMON));
+        asm("movwf 5"); // = 1
         asm("goto labe_apply_pwr_level__gen_pre_jump_addwf_3"); // decrease power by 3
 
     asm("labe_apply_pwr_level__gen_fall_m4_d3:");
@@ -1348,7 +1278,7 @@ void main() {
     WPU = 0xFF; // all possible pullups
     OSCCAL = __osccal_val();
 
-    last_raw_adc_val = 0;
+    adc_last_val = 0;
 
     app_flags = 0;
 
@@ -1416,6 +1346,7 @@ void main() {
 } //
 
 
+// optimal voltage is around 80-81% for evenly saturated solar panel, it doesn't depend on radiation level nor on temperature.
 // define mapping of thr muplitplication in eeprom (128..255)
 #define TMP_THR_H 0x80
 #define TMP_C(low) (((TMP_THR_H | low) * PROJ_CONST_THR) >> 8)
