@@ -12,9 +12,9 @@
 ### Repository structure:
 - pic12f675/main.c - MCU source code with description and documentation;
 - pic12f675/Basic_Scheme.png - schematic of solution with some description (drawn by hand, electricity may drop-off any time anyway).
-- pic12f675/compiled/... - firmware images (current version - 1.0.THR.OPTION).
-- pic12f675/compiled/pic12f675_lp_mppt__1_0_198_B.hex - latest tested version.
-- pic12f675/compiled/pic12f675_lp_mppt__1_0_198_F.hex - latest tested version.
+- pic12f675/compiled/... - firmware images (current version - 1.1.THR.OPTION).
+- pic12f675/compiled/pic12f675_lp_mppt__1_1_198_B.hex - latest tested version.
+- pic12f675/compiled/pic12f675_lp_mppt__1_1_202_F.hex - latest tested version.
 
 ### Versioning important note:
 Version format is major.minor.THR.OPTION where:
@@ -26,8 +26,20 @@ Version format is major.minor.THR.OPTION where:
 
 
 ### Releases
-- TBD: youtube video with more details;
+- TBA: youtube video with more details;
+- TBA: very high efficiency solar powerbank design;
 
+#### Release 1.1.x.B, 1.1.x.F [10 may 2023] - minor code updates, info updates and announcements
+- fixed minor pulsation in specific case of limiting (missed pwm-ON in one copypasted place);
+- optimized OCV measuring in some cases (optimized multiplication with smarter approach);
+- tested replacing 33uh indictor with 18uh - overall good, and when there's coil whine - it's less audible
+    (with such change - the ripple current is higher, which implies higher requirements for diode and capacitors);
+- tested real reverse current from battery to solar panel when it's dark/almost dark - nearly no reverse current (~2ma for 50w 18v panel with 12v battery connected),
+    input diode doesn't seem reasonable anymore (personally I removed it from my setup), more details on overall approach will be sometime later;
+- designed solution for reverse current protection without involving diodes and with nearly zero losses (for custom powerbank, current won't flow back to device when panel is removed/got dark),
+    the solution is TBA and it will have a new pins topology (extended feature);
+- rethinking usage for different kinds of output: when in non-continuous (discontinuous) mode - ripple current can be very high, which is important for high-current applications,
+  (happens when output voltage is less than ~60% of rated MPP - e.g. relates to almost discharged li-ion batteries regardless of chosen solar panel voltage, solution/improvement is planned for implementation and is TBA).
 
 #### [10 april 2023] - added schematic samples, assembly example and more info
 - added TLDR_DIY.md
