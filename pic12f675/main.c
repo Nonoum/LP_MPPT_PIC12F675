@@ -19,7 +19,7 @@
             0.15uf cap and "LP2950CZ-3.3G ON" stabilizer are used in the first prototype (similar 5v stabilizer is used in second prototype).
         3. linear stabilizer has output ceramic capacitor (used 2.2uf in the first prototype) and is connected as the PIC MCU power supply;
             * it turned out that it's necessary to add extra (larger) output capacitor to ensure adequate work of LP2950CZ, used extra 47uf electrolythic cap;
- *          * added extra 47uf capacitor requires FW 0.10 and higher for correct work (related to removed measuring of startup voltage);
+            * added extra 47uf capacitor requires FW 0.10 and higher for correct work (related to removed measuring of startup voltage);
             * no mini buck converter can be used instead, due to it's high input capacitance.
         4. one N-channel mosfet connects a large buffer capacitor between "high voltage" and "gnd" and occassionally (~once a second) disconnects it to measure open circuit voltage;
             * required PULLUP EXTERNAL resistor (used 200kOhm) - pull to stabilizer's voltage (which is 3.3v or 5v);
@@ -38,9 +38,9 @@
             second prototype uses 'buffer' mosfet IRL2203.
         8. with this minimum schematic the output is not regulated so it can reach up to "open circuit voltage" of the solar panel connected,
             as a very simple voltage limiter - a buck(step-down) converter could be used;
-            * FW has native limiting mechanism - see FW_VER_OPTION notes section.
+            * FW has native (more efficient and reasonable) limiting mechanism - see FW_VER_OPTION notes section.
 
-NOTES for release 1.0.*.*:
+NOTES for release 1.1.*.* and higher:
     Features:
         1. "soft start" (even at very high input power the device will start outputting power increasing current step-by-step, which can take several to several-tens of milliseconds, depending on voltage levels);
         2. low self-consumption: prototypes consume 1..2 ma in static state (stable state with no load), having worse linear stabilizer it would be a little more;
@@ -49,6 +49,10 @@ NOTES for release 1.0.*.*:
             * so a dual-comparator chip (e.g. LM393P used in 2nd prototype) can serve for both output voltage and output current limiting - check out sample schematics;
         4. inverted PWM pin (fully synchronous with non-inverted, might be used with external fet drivers - e.g. for very-high power devices).
         5. dynamic PWM frequency (dynamic duty-ON, duty-OFF is almost always 4us) that in theory provides best possible (least present) coil whine as for low frequency MCU;
+        6. UVLO (undervoltage lockout) feature - relies on OCV measuring, when OCV is below special threshold - appropriate pin changes it's state,
+            this allows using extra output mosfet for reverse-current protection (reaction time up to 2 seconds), threshold can be re-programmed and should be calculated
+            to be above (some +5-7%) of maximum voltage of battery being charged (default value is more or less universal, see 'U' schematics info and formula).
+            UVLO feature allows to fully get rid of input and output diodes and have zero reverse current at same time, which maximizes system efficiency.
 
     PIC MCU notes: there are different packages with at least two working voltage ranges: some PICs have 3.6v limit (only 3.3v stabilizer can be used in this case);
 
@@ -93,6 +97,7 @@ NOTES for release 1.0.*.*:
     Personal notes:
         *- although I believe it will work pretty well with real-world partial shading cases;
         *- partial shading isn't a problem that needs solving (except for very specific forced cases) as solar panels as technology simply doesn't assume partial shading - so just do proper installation / consider proper sizes to avoid any partial shading;
+        *- for a small panel real testing with partial shading (shading either blocks in series or in parallel) causes dramatic drop of current regardless of tracked voltage (even at some 20% of nominal voltage) so basically you can't help power generation in such case (* for larger systems blocks can have some bypass diodes to ease this case, but that's different story).
 */
 
 #define _XTAL_FREQ 4000000
@@ -116,6 +121,7 @@ NOTES for release 1.0.*.*:
     - planning to compile several versions with different offsets for the value to compensate input diode Vf;
 
     Input diode Vf (voltage drop on the input shottky diode):
+    - *for low voltage systems (not connected to grid, no inverters, etc) diodes aren't necessary and only degrade performance, consider 'U' topology to avoid small reverse current at night;
     - due to scheme specifics measurings of voltage is done after diode(s)*
         *could be done before diode if only one solar panel is used (one parallel connection);
         *if several panels are connected in parallel - each 'positive' wire should be connected through an individual diode (or each negative, but not mixed);
@@ -126,13 +132,15 @@ NOTES for release 1.0.*.*:
     - current dependency: for big current Vf would be bigger and appropriate offset (for maximum expected current) should be used to maximize output power (+minimize current fluctuations);
     - other offset considerations: it's better to offset THR a little lower (linear loss comparing to MPP) than higher (rather exponencial loss according to solar panels U/I characteristics);
 */
-#define PROJ_CONST_THR 198 // hard constant threshold percentage (x/255) of raw(no load/OCV) voltage to hold
+#define PROJ_CONST_THR 202 // hard constant threshold percentage (x/255) of raw(no load/OCV) voltage to hold
+
+#define PROJ_UVLO_THR 138 // used only in function (retlw) - preloads to RAM
 
 // version info (3 numbers and letter) is accessible at top program-memory addresses right before OSCCAL (retlw commands)
 #define FW_VER_MAJOR 1
-#define FW_VER_MINOR 1
+#define FW_VER_MINOR 2
 #define FW_VER_THR PROJ_CONST_THR
-#define FW_VER_OPTION 'F' // some letter describing topology/configuration of compiled code. default is 'F'
+#define FW_VER_OPTION 'U' // some letter describing topology/configuration of compiled code. default is 'U'
 /*
     FW_VER_OPTION vaiants:
     - 'A' (0x41) : unregulated output;
@@ -158,6 +166,13 @@ NOTES for release 1.0.*.*:
         GPIO4 is ADC input;
         GPIO5 - inverted 'limit' input, has internal pullup. pull to gnd when outputting power needs to be suspended;
         GPIO3 - unused floating input;
+    - 'U' (0x55) : UVLO (undervoltage lockout) feature - all features except inverted PWM, close to 'F' topology
+        GPIO0 - controls mosfet of buffer capacior;
+        GPIO1 - PWM (output-fet-driving pin);
+        GPIO2 - PWM (output-fet-driving pin) - any of GPIO1 or GPIO2 or both can be used, assumed to use both for more pin rated current;
+        GPIO4 is ADC input;
+        GPIO3 - inverted 'limit' input, requires external 10k-20k pullup. pull to gnd when outputting power needs to be suspended;
+        GPIO5 - UVLO pin: when in normal mode - output and set to 0, when in protection mode - input pullup;
 */
 
 
@@ -244,6 +259,13 @@ void aux_delay_generic() {
 #define PROJ_BIT_NUM_OUT_CAP 0 // GPIO0 : N-channel mosfet controlling power capacitor, PULLUP external resistor 200k
 #define PROJ_BIT_NUM_IN_INV_LIMIT 5 // GPIO5 - inverted 'limit' input
 #define PROJ_ADC_CH_VOL 3 // ADC channel - AN3 (GPIO4) : voltage divider for power line - calculate so that it maxes out to chip PSU level (used 3.3 regulator)
+#elif FW_VER_OPTION == 'U'
+#define PROJ_BIT_NUM_OUT_PWM_0 1 // GPIO1 : N-channel mosfet (or 'enable' pin on output line) controlling output line, PULLDOWN external resistor
+#define PROJ_BIT_NUM_OUT_PWM_1 2 // GPIO2 : N-channel mosfet (or 'enable' pin on output line) controlling output line, PULLDOWN external resistor
+#define PROJ_BIT_NUM_OUT_CAP 0 // GPIO0 : N-channel mosfet controlling power capacitor, PULLUP external resistor 200k
+#define PROJ_BIT_NUM_IN_INV_LIMIT 3 // GPIO3 - inverted 'limit' input (needs external pullup)
+#define PROJ_ADC_CH_VOL 3 // ADC channel - AN3 (GPIO4) : voltage divider for power line - calculate so that it maxes out to chip PSU level (used 3.3 regulator)
+#define PROJ_BIT_NUM_UVLO_PULL 5 // GPIO5 - UVLO pull pin (when in normal mode - output and set to 0, when in protection mode - input pullup)
 #else
 // TODO different configurations if needed
 #endif
@@ -338,7 +360,21 @@ void tmr_proc() {
     ////// measure OCV. for high currents - as fast as possible
     PROJ_SET_GPIO_CAPOFF_PWMOFF
     PROJ_ADC_START()
+#ifdef PROJ_BIT_NUM_UVLO_PULL
+        // compare previous adc OCV reading in this timing gap to not cause extra PWM delays
+        // resulted reaction delay doesn't matter for design (up to 2 seconds reaction time)
+        // this would also have positive side effect of later opening on start,
+        // which would prevent a burst of reverse current to output capacitor
+        asm("movf _uvlo_thr,w");
+        asm("subwf _adc_ocv_prev,w"); // w = adc - uvlo_thr; setup C-flag state
+        asm("skipc"); // c == no borrow;
+            asm("bsf " LOCATION__INDF "," AUX_STRINGIFY(PROJ_BIT_NUM_UVLO_PULL)); // output mosfet closed; UVLO pin is in input mode
+        asm("skipnc");
+            asm("bcf " LOCATION__INDF "," AUX_STRINGIFY(PROJ_BIT_NUM_UVLO_PULL)); // output mosfet open; UVLO pin is in output mode
+        AUX_DELAY_1
+#else
         AUX_DELAY_7
+#endif
     // always waste first measured sample
     PROJ_ADC_START()
         asm("bsf _timer_multiplier," AUX_STRINGIFY(PROJ_TIMER_MULTIPLIER_AS_BIT)); // recover timer
@@ -449,6 +485,7 @@ uint8_t thr_hi; // high level voltage threshold
 uint8_t pwr_level = 1; // active power level. 0,1 = disconnected
 uint8_t tmp_ctr; // temporary
 uint8_t tmp_ctr2; // temporary
+uint8_t uvlo_thr;
 
 
 #define PROJ_DEFINE_BLOCK_2V3_NO_PRECHECK(lbl_part_name) \
@@ -1278,6 +1315,14 @@ void main() {
     WPU = 0xFF; // all possible pullups
     OSCCAL = __osccal_val();
 
+#ifdef PROJ_BIT_NUM_UVLO_PULL
+    asm("fcall _load_uvlo_thr_to_w");
+    asm("movwf _uvlo_thr");
+    //
+    asm("movlw 085h"); // TRISIO addr
+    asm("movwf " LOCATION__FSR); // point FSR to TRISIO
+#endif
+
     adc_last_val = 0;
 
     app_flags = 0;
@@ -1385,9 +1430,15 @@ __EEPROM_DATA(TMP_C(8),TMP_C(9),TMP_C(10),TMP_C(11),TMP_C(12),TMP_C(13),TMP_C(14
 
 
 asm("global _aux_sort_of_static_assert_for_nop2");
-void aux_sort_of_static_assert_for_nop2(void) __at(0x03FF - 5 - 2) {
+void aux_sort_of_static_assert_for_nop2(void) __at(0x03FF - 5 - 2 - 2) {
     AUX_1CMD_DELAY_2
     // 'return' is auto-generated here
+}
+
+// function is actually used - added just in case to allow correction of UVLO THR constant directly in hex file if needed
+void load_uvlo_thr_to_w(void) __at(0x03FF - 5 - 2) {
+    asm("retlw " AUX_STRINGIFY(PROJ_UVLO_THR));
+    // excessive 'return' is auto-generated, can be worked around if needed
 }
 
 asm("global _aux_version_info_footer");
