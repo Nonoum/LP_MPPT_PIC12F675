@@ -15,6 +15,7 @@
 - pic12f675/compiled/... - firmware images (current version - 1.1.THR.OPTION).
 - pic12f675/compiled/pic12f675_lp_mppt__1_1_198_B.hex - latest tested version.
 - pic12f675/compiled/pic12f675_lp_mppt__1_1_202_F.hex - latest tested version.
+- pic12f675/compiled/pic12f675_lp_mppt__1_2_202_U__uvlo138.hex - latest tested version.
 
 ### Versioning important note:
 Version format is major.minor.THR.OPTION where:
@@ -28,6 +29,12 @@ Version format is major.minor.THR.OPTION where:
 ### Releases
 - TBA: youtube video with more details;
 - TBA: very high efficiency solar powerbank design;
+
+#### Release 1.2.202.U [31 may 2023] - added 'U' topology with undervoltage lockout feature - see documentation
+- added pic12f675/U_schematics_extension.jpg;
+- added more documentation notes in top of main.c;
+- FW has no other differencies with v1.1;
+- assembled and partly tested new prototype for 'U' feature - very high efficiency Li-Ion charger for 6v-MPP-rated solar panel, no input/output diodes, no BMS (direct charging, no reverse current), up to 94% tested efficiency (typically 90+%), used 3.3v linear stabilizer for powering PIC and nice IRLML6244 SMD mosfets (except from 'FET3'), more info later.
 
 #### Release 1.1.x.B, 1.1.x.F [10 may 2023] - minor code updates, info updates and announcements
 - fixed minor pulsation in specific case of limiting (missed pwm-ON in one copypasted place);
