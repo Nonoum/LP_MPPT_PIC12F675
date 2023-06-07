@@ -138,7 +138,7 @@ NOTES for release 1.1.*.* and higher:
 
 // version info (3 numbers and letter) is accessible at top program-memory addresses right before OSCCAL (retlw commands)
 #define FW_VER_MAJOR 1
-#define FW_VER_MINOR 2
+#define FW_VER_MINOR 3
 #define FW_VER_THR PROJ_CONST_THR
 #define FW_VER_OPTION 'U' // some letter describing topology/configuration of compiled code. default is 'U'
 /*
@@ -399,7 +399,7 @@ void tmr_proc() {
         asm("xorwf _adc_last_val,f"); // compare #3(==#2) with previous OCV
     PROJ_ADC_START() // sample #4 rdy
         asm("skipnz");
-            asm("goto labe_tmr_proc__quit_fastest"); // ..45 tacts between pwm_off and returning to called code (+7 tacts more to pwm_on. best case)
+            asm("goto labe_tmr_proc__quit_fastest"); // ..46 tacts between pwm_off and returning to called code (+7 tacts more to pwm_on. best case)
         asm("xorwf _adc_last_val,f"); // undo xor - recover correct value, we still need it
         asm("movf " LOCATION__ADCVAL ",w"); // sample #4
         asm("xorwf _adc_last_val,f"); // compare #4 with #3
@@ -455,6 +455,7 @@ void tmr_proc() {
         asm("return");
 
     asm("labe_tmr_proc__quit_fastest:");
+        asm("xorwf _adc_last_val,f"); // undo xor - recover correct value, we still need it
         PROJ_SET_GPIO_CAPON_PWMOFF
         // previous/current ADC run partly overlaps with CAPOFF->CAPON transition
         // at the moment nevermind of not too settled voltage on ADC sample, in worst case we will output slightly more power at single next iteration
