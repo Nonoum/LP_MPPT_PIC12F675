@@ -6,16 +6,18 @@
 
 #### I've been working on this project intermittently since Autumn 2022 and it took longer than I wanted as I have extremely limited time/resources.
 
-#### "LOW POWER" note: designed specifically for use in cloudy and winter weather to work properly with generated power starting from around 0.1W, but depending on used components can be used for high power as well, which won't impede proper work of very same device with low power, due to device concept and low frequency MCU. Most reasonable use-case is a small solar station / medium-size panel (e.g. for hiking) with solar panel(s) rating ranging from some 10W to 100W.
+#### "LOW POWER" note: designed specifically for use in cloudy and winter weather to work properly with generated power starting from around 0.1W, but depending on used components can be used for high power as well, which won't impede proper work of very same device with low power, due to device concept and low frequency MCU. Most reasonable use-case is a small solar station / medium-size panel (e.g. for hiking) with solar panel(s) rating ranging from some 5W to 100W. For too low power panels (less than a couple of watts) - MPPT may be not reasonable as it's easier and cheaper to just have bigger panel instead (if use-case allows bigger size), however an adequate alternative charging controller/method should be used to not have daramatically low overall efficiency.
 
 
 ### Repository structure:
 - pic12f675/main.c - MCU source code with description and documentation;
-- pic12f675/Basic_Scheme.png - schematic of solution with some description (drawn by hand, electricity may drop-off any time anyway).
-- pic12f675/compiled/... - firmware images (current version - 1.1.THR.OPTION).
+- pic12f675/1.0_schematics.jpg - main schematics
+- pic12f675/U_schematics_extension.jpg - extension to main schematics for UVLO feature ('U' topology)
+- pic12f675/... - older schematics (Basic_Scheme - legacy file) and sample images of prototype #2 with extra comments
+- pic12f675/compiled/... - firmware images (current version - 1.3.THR.OPTION).
 - pic12f675/compiled/pic12f675_lp_mppt__1_1_198_B.hex - latest tested version.
-- pic12f675/compiled/pic12f675_lp_mppt__1_1_202_F.hex - latest tested version.
-- pic12f675/compiled/pic12f675_lp_mppt__1_2_202_U__uvlo138.hex - latest tested version.
+- pic12f675/compiled/pic12f675_lp_mppt__1_3_202_F.hex - latest tested version.
+- pic12f675/compiled/pic12f675_lp_mppt__1_3_202_U__uvlo138.hex - latest tested version.
 
 ### Versioning important note:
 Version format is major.minor.THR.OPTION where:
@@ -29,6 +31,9 @@ Version format is major.minor.THR.OPTION where:
 ### Releases
 - TBA: youtube video with more details;
 - TBA: very high efficiency solar powerbank design;
+
+#### Release 1.3.202.U, 1.3.x.F, 1.3.x.B [07 june 2023] - fixed issue introduced in version 1.1 - minor for 'B' and 'F' but vital for 'U' topology
+- fixed recovering cached last adc value for fastest case of measuring OCV - this was causing flipping of UVLO pin ON/OFF in certain cases
 
 #### Release 1.2.202.U [31 may 2023] - added 'U' topology with undervoltage lockout feature - see documentation
 - added pic12f675/U_schematics_extension.jpg;
