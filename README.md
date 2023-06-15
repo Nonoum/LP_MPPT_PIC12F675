@@ -21,7 +21,7 @@
 
 ### Versioning important note:
 Version format is major.minor.THR.OPTION where:
-- THR is a threshold constant, which should be chosen according to used input diode for optimal work:
+- THR is a threshold constant, which should be chosen according to used input diode or potential loss on input wires for optimal work:
     * compiled THR versions are 202, 198, 194; 202 is assumed for "no input diode" connection, 198 - for low drop diodes, 194 - for worse diodes.
     * THR choice affects efficiency and output pulsations and it's preferable to use lower THR (leave a little room until MPP) - see "PROJ_CONST_THR" notes and "Input diode Vf" notes in "main.c".
 - OPTION is used pinout/topology, see "FW_VER_OPTION vaiants" in "main.c".
@@ -31,6 +31,14 @@ Version format is major.minor.THR.OPTION where:
 ### Releases
 - TBA: youtube video with more details;
 - TBA: very high efficiency solar powerbank design;
+
+#### [15 june 2023] - added few more prebuilt 'U' FW options (no code changes)
+- added 1_3_194_U, 1_3_198_U, 1_3_200_U; initially project was oriented for 18v and higher voltage panels as I thought it wouldn't be reasonable for low voltage,
+but luckily after deeper research it turned out that it's fine and reasonable even for single li-ion cell charging (3.7v output, 6v MPP rated solar, 3.3v voltage stabilizer for PIC) if everything is done right.
+The THR param is percentage of OCV voltage to be maintained on input (input voltage = OCV * THR/256), keeping in mind that measured OCV can be slighly smaller than real OCV and even without diodes there is some voltage loss on input wires, so even without input diodes there's some room of error which should be considered/corrected for small input voltages or for big currents and not-too-tough wires,
+so extra options were prebuilt and some of them will suit the setup best way and win some 1-2% over some other version (e.g. if expected maximum current is somewhat big and loss on wire is somewhat noticeable - it may be better to use *200 or *198 version instead of default *202);
+- attempted to implement wider continuous mode range (to support lower duty-cycle ratios and yield less ripple current in certain cases - like for charging almost discharged li-ion cell),
+but it ended up being too poorly balanced and causing significant pulsations and coil wine so I discarded this idea (*attempt assumed keeping existing continuous mode part the same so maintaining high frequency on 1mhz MCU).
 
 #### Release 1.3.202.U, 1.3.x.F, 1.3.x.B [07 june 2023] - fixed issue introduced in version 1.1 - minor for 'B' and 'F' but vital for 'U' topology
 - fixed recovering cached last adc value for fastest case of measuring OCV - this was causing flipping of UVLO pin ON/OFF in certain cases
