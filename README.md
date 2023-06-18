@@ -29,8 +29,10 @@ Version format is major.minor.THR.OPTION where:
 
 
 ### Releases
-- TBA: youtube video with more details;
 - TBA: very high efficiency solar powerbank design;
+
+
+#### [18 june 2023] - see https://youtu.be/ihknAuBgBg0
 
 #### [15 june 2023] - added few more prebuilt 'U' FW options (no code changes)
 - added 1_3_194_U, 1_3_198_U, 1_3_200_U; initially project was oriented for 18v and higher voltage panels as I thought it wouldn't be reasonable for low voltage,
